@@ -2,11 +2,14 @@ package org.akbal.ui;
 
 import org.akbal.i18n.LocaleManager;
 import org.akbal.model.MqMessage;
+import org.akbal.service.LiveModeService;
 import org.akbal.service.MqService;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.geom.RoundRectangle2D;
 import java.util.List;
 import java.util.Locale;
@@ -21,8 +24,14 @@ public class MainFrame extends JFrame {
     private final MessageDetailPanel messageDetailPanel;
     private final JLabel statusLabel;
     private final JLabel statusDot;
+    private final JButton langButton;
 
     private final MqService mqService = new MqService();
+    private final LiveModeService liveModeService = new LiveModeService(mqService);
+
+    // Pulse animation for live mode
+    private Timer pulseTimer;
+    private boolean pulseBright = true;
 
     public MainFrame() {
         super(msg("app.title"));
@@ -67,7 +76,7 @@ public class MainFrame extends JFrame {
         JPanel headerRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         headerRight.setOpaque(false);
 
-        JButton langButton = createStyledButton(msg("lang.switch"), ButtonStyle.OUTLINE);
+        langButton = createStyledButton(msg("lang.switch"), ButtonStyle.OUTLINE);
         langButton.setFont(FONT_BODY_BOLD);
         langButton.setPreferredSize(new Dimension(80, 30));
         langButton.addActionListener(e -> onSwitchLanguage());
@@ -154,11 +163,20 @@ public class MainFrame extends JFrame {
         add(statusBar, BorderLayout.SOUTH);
 
         wireEvents();
+
+        // Stop live mode when window is closing
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                stopLiveMode();
+            }
+        });
     }
 
     private void wireEvents() {
         connectionPanel.addTestButtonListener(e -> onTestConnection());
         connectionPanel.addBrowseButtonListener(e -> onBrowseMessages());
+        connectionPanel.addLiveButtonListener(e -> onToggleLiveMode());
 
         messageTablePanel.getTable().getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
@@ -174,6 +192,26 @@ public class MainFrame extends JFrame {
         statusDot.repaint();
     }
 
+    // ── Pulse animation for live mode ───────────────────────────────────────
+
+    private void startPulseAnimation() {
+        if (pulseTimer != null) pulseTimer.stop();
+        pulseBright = true;
+        pulseTimer = new Timer(600, e -> {
+            pulseBright = !pulseBright;
+            statusDot.setForeground(pulseBright ? ACCENT : ACCENT_DIM);
+            statusDot.repaint();
+        });
+        pulseTimer.start();
+    }
+
+    private void stopPulseAnimation() {
+        if (pulseTimer != null) {
+            pulseTimer.stop();
+            pulseTimer = null;
+        }
+    }
+
     // ── Language switching ───────────────────────────────────────────────────
 
     private void onSwitchLanguage() {
@@ -186,6 +224,7 @@ public class MainFrame extends JFrame {
         SwingUtilities.invokeLater(() -> {
             Point location = getLocation();
             Dimension size = getSize();
+            stopLiveMode();
             dispose();
 
             MainFrame newFrame = new MainFrame();
@@ -193,6 +232,62 @@ public class MainFrame extends JFrame {
             newFrame.setSize(size);
             newFrame.setVisible(true);
         });
+    }
+
+    // ── Live mode ───────────────────────────────────────────────────────────
+
+    private void onToggleLiveMode() {
+        if (liveModeService.isRunning()) {
+            stopLiveMode();
+        } else {
+            startLiveMode();
+        }
+    }
+
+    private void startLiveMode() {
+        String queueName = connectionPanel.getConfig().getQueueName();
+        if (queueName == null || queueName.isBlank()) {
+            JOptionPane.showMessageDialog(this, msg("conn.dialog.queue_required"),
+                    msg("dialog.warning"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        connectionPanel.setLiveMode(true);
+        langButton.setEnabled(false);
+        messageTablePanel.clearMessages();
+        messageDetailPanel.clear();
+        setStatus(msg("live.status.connecting"), UIConstants.WARNING);
+        startPulseAnimation();
+
+        liveModeService.start(
+                connectionPanel.getConfig(),
+                connectionPanel.getMessageLimit(),
+                // onNewMessages
+                (newMessages, totalCount) -> {
+                    messageTablePanel.addMessages(newMessages);
+                    setStatus(msg("live.status", totalCount), ACCENT);
+                },
+                // onError
+                (errorMsg) -> {
+                    setStatus(msg("live.status.error", errorMsg), UIConstants.ERROR);
+                },
+                // onAutoStopped
+                () -> {
+                    stopLiveMode();
+                    setStatus(msg("live.status.auto_stopped"), UIConstants.ERROR);
+                    JOptionPane.showMessageDialog(MainFrame.this,
+                            msg("live.status.auto_stopped"),
+                            msg("dialog.error"), JOptionPane.ERROR_MESSAGE);
+                }
+        );
+    }
+
+    private void stopLiveMode() {
+        liveModeService.stop();
+        stopPulseAnimation();
+        connectionPanel.setLiveMode(false);
+        langButton.setEnabled(true);
+        setStatus(msg("status.ready"), ACCENT);
     }
 
     // ── Connection test ─────────────────────────────────────────────────────

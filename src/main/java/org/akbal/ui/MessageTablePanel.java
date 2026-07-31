@@ -11,7 +11,10 @@ import javax.swing.table.TableCellRenderer;
 import java.awt.*;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.akbal.i18n.LocaleManager.msg;
 import static org.akbal.ui.UIConstants.*;
@@ -19,9 +22,11 @@ import static org.akbal.ui.UIConstants.*;
 public class MessageTablePanel extends JPanel {
 
     private static final DateTimeFormatter DT_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int HIGHLIGHT_DURATION_MS = 2_500;
 
     private final MessageTableModel tableModel = new MessageTableModel();
     private final JTable table;
+    private final Set<Integer> highlightedRows = Collections.synchronizedSet(new HashSet<>());
 
     public MessageTablePanel() {
         setLayout(new BorderLayout(0, 0));
@@ -56,7 +61,7 @@ public class MessageTablePanel extends JPanel {
         table.getColumnModel().getColumn(3).setPreferredWidth(90);
         table.getColumnModel().getColumn(4).setPreferredWidth(80);
 
-        // ── Custom cell renderer (alternating rows + padding) ───────────────
+        // ── Custom cell renderer (alternating rows + highlight) ─────────────
         DefaultTableCellRenderer cellRenderer = new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable t, Object value,
@@ -68,6 +73,10 @@ public class MessageTablePanel extends JPanel {
                 if (isSelected) {
                     setBackground(new Color(ACCENT.getRed(), ACCENT.getGreen(), ACCENT.getBlue(), 50));
                     setForeground(TABLE_SELECTION_FG);
+                } else if (highlightedRows.contains(row)) {
+                    // Live mode highlight for new messages
+                    setBackground(new Color(ACCENT.getRed(), ACCENT.getGreen(), ACCENT.getBlue(), 30));
+                    setForeground(ACCENT);
                 } else {
                     setBackground(row % 2 == 0 ? TABLE_ROW_EVEN : TABLE_ROW_ODD);
                     setForeground(TEXT_PRIMARY);
@@ -115,11 +124,44 @@ public class MessageTablePanel extends JPanel {
         add(scrollPane, BorderLayout.CENTER);
     }
 
+    /** Replace all messages (used by manual browse). */
     public void setMessages(List<MqMessage> messages) {
+        highlightedRows.clear();
         tableModel.setMessages(messages);
     }
 
+    /** Append new messages (used by live mode). Highlights new rows temporarily. */
+    public void addMessages(List<MqMessage> newMessages) {
+        if (newMessages.isEmpty()) return;
+
+        int firstNewRow = tableModel.getRowCount();
+        tableModel.addMessages(newMessages);
+        int lastNewRow = tableModel.getRowCount() - 1;
+
+        // Track highlighted rows
+        Set<Integer> newHighlightRows = new HashSet<>();
+        for (int i = firstNewRow; i <= lastNewRow; i++) {
+            newHighlightRows.add(i);
+        }
+        highlightedRows.addAll(newHighlightRows);
+        table.repaint();
+
+        // Auto-scroll to last new row
+        SwingUtilities.invokeLater(() -> {
+            table.scrollRectToVisible(table.getCellRect(lastNewRow, 0, true));
+        });
+
+        // Remove highlight after duration
+        Timer highlightTimer = new Timer(HIGHLIGHT_DURATION_MS, e -> {
+            highlightedRows.removeAll(newHighlightRows);
+            table.repaint();
+        });
+        highlightTimer.setRepeats(false);
+        highlightTimer.start();
+    }
+
     public void clearMessages() {
+        highlightedRows.clear();
         tableModel.setMessages(new ArrayList<>());
     }
 
@@ -147,8 +189,14 @@ public class MessageTablePanel extends JPanel {
         private List<MqMessage> messages = new ArrayList<>();
 
         public void setMessages(List<MqMessage> messages) {
-            this.messages = messages;
+            this.messages = new ArrayList<>(messages);
             fireTableDataChanged();
+        }
+
+        public void addMessages(List<MqMessage> newMessages) {
+            int firstRow = messages.size();
+            messages.addAll(newMessages);
+            fireTableRowsInserted(firstRow, messages.size() - 1);
         }
 
         public MqMessage getMessageAt(int row) {

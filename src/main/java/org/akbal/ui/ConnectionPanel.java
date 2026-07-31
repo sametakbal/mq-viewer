@@ -30,6 +30,7 @@ public class ConnectionPanel extends JPanel {
 
     private final JButton testButton;
     private final JButton browseButton;
+    private final JButton liveButton;
 
     private final ConnectionStore connectionStore = new ConnectionStore();
 
@@ -44,12 +45,14 @@ public class ConnectionPanel extends JPanel {
         deleteButton = createStyledButton(msg("conn.btn.delete"), ButtonStyle.SUBTLE);
         testButton = createStyledButton(msg("conn.btn.test"), ButtonStyle.OUTLINE);
         browseButton = createStyledButton(msg("conn.btn.browse"), ButtonStyle.FILLED);
+        liveButton = createStyledButton(msg("live.btn.start"), ButtonStyle.OUTLINE);
 
         loadButton.setPreferredSize(new Dimension(90, BUTTON_HEIGHT));
         saveButton.setPreferredSize(new Dimension(100, BUTTON_HEIGHT));
         deleteButton.setPreferredSize(new Dimension(75, BUTTON_HEIGHT));
         testButton.setPreferredSize(new Dimension(170, BUTTON_HEIGHT));
         browseButton.setPreferredSize(new Dimension(180, BUTTON_HEIGHT));
+        liveButton.setPreferredSize(new Dimension(120, BUTTON_HEIGHT));
 
         // ── Style all inputs ────────────────────────────────────────────────
         styleTextField(hostField);
@@ -106,6 +109,7 @@ public class ConnectionPanel extends JPanel {
         buttonPanel.setOpaque(false);
         buttonPanel.add(testButton);
         buttonPanel.add(browseButton);
+        buttonPanel.add(liveButton);
 
         // ── Assemble ────────────────────────────────────────────────────────
         JPanel topPanel = new JPanel(new BorderLayout(0, 4));
@@ -177,6 +181,32 @@ public class ConnectionPanel extends JPanel {
     public void setButtonsEnabled(boolean enabled) {
         testButton.setEnabled(enabled);
         browseButton.setEnabled(enabled);
+        liveButton.setEnabled(enabled);
+    }
+
+    public void addLiveButtonListener(ActionListener listener) {
+        liveButton.addActionListener(listener);
+    }
+
+    /** Updates UI state for live mode on/off. */
+    public void setLiveMode(boolean active) {
+        liveButton.setText(active ? msg("live.btn.stop") : msg("live.btn.start"));
+        testButton.setEnabled(!active);
+        browseButton.setEnabled(!active);
+        loadButton.setEnabled(!active);
+        saveButton.setEnabled(!active);
+        deleteButton.setEnabled(!active);
+
+        // Disable/enable all input fields
+        hostField.setEnabled(!active);
+        portField.setEnabled(!active);
+        channelField.setEnabled(!active);
+        queueManagerField.setEnabled(!active);
+        queueNameField.setEnabled(!active);
+        usernameField.setEnabled(!active);
+        passwordField.setEnabled(!active);
+        limitSpinner.setEnabled(!active);
+        savedConnectionsCombo.setEnabled(!active);
     }
 
     public void setConfig(MqConnectionConfig config) {
