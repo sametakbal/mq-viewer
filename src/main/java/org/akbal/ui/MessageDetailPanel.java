@@ -3,8 +3,12 @@ package org.akbal.ui;
 import org.akbal.model.MqMessage;
 
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.time.format.DateTimeFormatter;
+
+import static org.akbal.i18n.LocaleManager.msg;
+import static org.akbal.ui.UIConstants.*;
 
 public class MessageDetailPanel extends JPanel {
 
@@ -18,30 +22,76 @@ public class MessageDetailPanel extends JPanel {
     private final JTextArea payloadArea = new JTextArea();
 
     public MessageDetailPanel() {
-        setLayout(new BorderLayout(5, 5));
-        setBorder(BorderFactory.createTitledBorder("Mesaj Detayı"));
+        setLayout(new BorderLayout(0, 6));
+        setOpaque(false);
+        setBorder(new EmptyBorder(0, 0, 0, 0));
 
-        JPanel metaPanel = new JPanel(new GridBagLayout());
+        // ── Section header ──────────────────────────────────────────────────
+        JPanel header = createSectionHeader("📄", msg("detail.section_title"));
+        header.setBorder(new EmptyBorder(8, 12, 4, 12));
+
+        // ── Meta card ───────────────────────────────────────────────────────
+        JPanel metaCard = createCardPanel();
+        metaCard.setLayout(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(2, 5, 2, 5);
+        gbc.insets = new Insets(4, 8, 4, 8);
         gbc.anchor = GridBagConstraints.WEST;
 
-        addMeta(metaPanel, gbc, 0, "Message ID:", messageIdLabel);
-        addMeta(metaPanel, gbc, 1, "Correlation ID:", correlationIdLabel);
-        addMeta(metaPanel, gbc, 2, "Put Tarih:", putDateLabel);
-        addMeta(metaPanel, gbc, 3, "Format:", formatLabel);
-        addMeta(metaPanel, gbc, 4, "Boyut:", sizeLabel);
+        styleValueLabel(messageIdLabel);
+        styleValueLabel(correlationIdLabel);
+        styleValueLabel(putDateLabel);
+        styleValueLabel(formatLabel);
+        styleValueLabel(sizeLabel);
 
-        add(metaPanel, BorderLayout.NORTH);
+        addMeta(metaCard, gbc, 0, msg("detail.message_id"), messageIdLabel);
+        addMeta(metaCard, gbc, 1, msg("detail.correlation_id"), correlationIdLabel);
+        addMeta(metaCard, gbc, 2, msg("detail.put_date"), putDateLabel);
+        addMeta(metaCard, gbc, 3, msg("detail.format"), formatLabel);
+        addMeta(metaCard, gbc, 4, msg("detail.size"), sizeLabel);
 
+        JPanel metaWrapper = new JPanel(new BorderLayout());
+        metaWrapper.setOpaque(false);
+        metaWrapper.setBorder(new EmptyBorder(0, 8, 0, 8));
+        metaWrapper.add(metaCard, BorderLayout.NORTH);
+
+        // ── Payload area ────────────────────────────────────────────────────
         payloadArea.setEditable(false);
-        payloadArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+        payloadArea.setFont(FONT_MONO);
+        payloadArea.setForeground(TEXT_PRIMARY);
+        payloadArea.setBackground(BG_INPUT);
+        payloadArea.setCaretColor(ACCENT);
+        payloadArea.setSelectionColor(ACCENT_DIM);
+        payloadArea.setSelectedTextColor(Color.WHITE);
         payloadArea.setLineWrap(true);
         payloadArea.setWrapStyleWord(true);
+        payloadArea.setBorder(new EmptyBorder(12, 14, 12, 14));
 
         JScrollPane scrollPane = new JScrollPane(payloadArea);
-        scrollPane.setBorder(BorderFactory.createTitledBorder("İçerik"));
-        add(scrollPane, BorderLayout.CENTER);
+        scrollPane.setBorder(BorderFactory.createLineBorder(BORDER_SUBTLE));
+        scrollPane.getViewport().setBackground(BG_INPUT);
+
+        JPanel payloadPanel = new JPanel(new BorderLayout(0, 4));
+        payloadPanel.setOpaque(false);
+        payloadPanel.setBorder(new EmptyBorder(4, 8, 8, 8));
+
+        JPanel payloadHeader = createSectionHeader("📦", msg("detail.content"));
+        payloadHeader.setBorder(new EmptyBorder(4, 4, 4, 0));
+        payloadPanel.add(payloadHeader, BorderLayout.NORTH);
+        payloadPanel.add(scrollPane, BorderLayout.CENTER);
+
+        // ── Assemble ────────────────────────────────────────────────────────
+        add(header, BorderLayout.NORTH);
+
+        JPanel centerPanel = new JPanel(new BorderLayout(0, 4));
+        centerPanel.setOpaque(false);
+        centerPanel.add(metaWrapper, BorderLayout.NORTH);
+        centerPanel.add(payloadPanel, BorderLayout.CENTER);
+        add(centerPanel, BorderLayout.CENTER);
+    }
+
+    private void styleValueLabel(JLabel label) {
+        label.setFont(FONT_BODY);
+        label.setForeground(TEXT_PRIMARY);
     }
 
     private void addMeta(JPanel panel, GridBagConstraints gbc, int row, String label, JLabel value) {
@@ -50,7 +100,8 @@ public class MessageDetailPanel extends JPanel {
         gbc.weightx = 0;
         gbc.fill = GridBagConstraints.NONE;
         JLabel lbl = new JLabel(label);
-        lbl.setFont(lbl.getFont().deriveFont(Font.BOLD));
+        lbl.setFont(FONT_BODY_BOLD);
+        lbl.setForeground(ACCENT);
         panel.add(lbl, gbc);
 
         gbc.gridx = 1;
@@ -59,17 +110,17 @@ public class MessageDetailPanel extends JPanel {
         panel.add(value, gbc);
     }
 
-    public void showMessage(MqMessage msg) {
-        if (msg == null) {
+    public void showMessage(MqMessage mqMsg) {
+        if (mqMsg == null) {
             clear();
             return;
         }
-        messageIdLabel.setText(msg.getMessageId());
-        correlationIdLabel.setText(msg.getCorrelationId());
-        putDateLabel.setText(msg.getPutDateTime() != null ? msg.getPutDateTime().format(DT_FMT) : "-");
-        formatLabel.setText(msg.getFormat());
-        sizeLabel.setText(msg.getSize() + " byte");
-        payloadArea.setText(msg.getPayload());
+        messageIdLabel.setText(mqMsg.getMessageId());
+        correlationIdLabel.setText(mqMsg.getCorrelationId());
+        putDateLabel.setText(mqMsg.getPutDateTime() != null ? mqMsg.getPutDateTime().format(DT_FMT) : "-");
+        formatLabel.setText(mqMsg.getFormat());
+        sizeLabel.setText(msg("detail.size_unit", mqMsg.getSize()));
+        payloadArea.setText(mqMsg.getPayload());
         payloadArea.setCaretPosition(0);
     }
 

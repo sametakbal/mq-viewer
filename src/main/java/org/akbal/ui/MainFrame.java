@@ -1,44 +1,156 @@
 package org.akbal.ui;
 
+import org.akbal.i18n.LocaleManager;
 import org.akbal.model.MqMessage;
 import org.akbal.service.MqService;
 
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.geom.RoundRectangle2D;
 import java.util.List;
+import java.util.Locale;
+
+import static org.akbal.i18n.LocaleManager.msg;
+import static org.akbal.ui.UIConstants.*;
 
 public class MainFrame extends JFrame {
 
     private final ConnectionPanel connectionPanel;
     private final MessageTablePanel messageTablePanel;
     private final MessageDetailPanel messageDetailPanel;
-    private final JLabel statusBar;
+    private final JLabel statusLabel;
+    private final JLabel statusDot;
 
     private final MqService mqService = new MqService();
 
     public MainFrame() {
-        super("IBM MQ Viewer");
+        super(msg("app.title"));
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1000, 700);
-        setMinimumSize(new Dimension(800, 550));
+        setSize(1200, 800);
+        setMinimumSize(new Dimension(900, 600));
         setLocationRelativeTo(null);
+        getContentPane().setBackground(BG_PRIMARY);
 
         connectionPanel = new ConnectionPanel();
         messageTablePanel = new MessageTablePanel();
         messageDetailPanel = new MessageDetailPanel();
 
-        statusBar = new JLabel(" Hazır");
-        statusBar.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, UIManager.getColor("Separator.foreground")),
-                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+        // ── Header bar ──────────────────────────────────────────────────────
+        JPanel headerBar = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
+                // Gradient background
+                GradientPaint gp = new GradientPaint(0, 0, BG_HEADER, getWidth(), 0, BG_SECONDARY);
+                g2.setPaint(gp);
+                g2.fillRect(0, 0, getWidth(), getHeight());
+
+                // Bottom accent line
+                g2.setColor(ACCENT_DIM);
+                g2.fillRect(0, getHeight() - 2, getWidth(), 2);
+
+                g2.dispose();
+            }
+        };
+        headerBar.setPreferredSize(new Dimension(0, 52));
+        headerBar.setBorder(new EmptyBorder(0, 20, 0, 20));
+
+        JLabel titleLabel = new JLabel("⚡ " + msg("app.title"));
+        titleLabel.setFont(FONT_TITLE);
+        titleLabel.setForeground(TEXT_PRIMARY);
+        headerBar.add(titleLabel, BorderLayout.WEST);
+
+        // ── Language switcher + version ──────────────────────────────────────
+        JPanel headerRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        headerRight.setOpaque(false);
+
+        JButton langButton = createStyledButton(msg("lang.switch"), ButtonStyle.OUTLINE);
+        langButton.setFont(FONT_BODY_BOLD);
+        langButton.setPreferredSize(new Dimension(80, 30));
+        langButton.addActionListener(e -> onSwitchLanguage());
+        headerRight.add(langButton);
+
+        JLabel versionLabel = new JLabel("v1.0");
+        versionLabel.setFont(FONT_SMALL);
+        versionLabel.setForeground(TEXT_MUTED);
+        headerRight.add(versionLabel);
+
+        headerBar.add(headerRight, BorderLayout.EAST);
+
+        // ── Status bar ──────────────────────────────────────────────────────
+        JPanel statusBar = new JPanel(new BorderLayout()) {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(BG_HEADER);
+                g2.fillRect(0, 0, getWidth(), getHeight());
+
+                // Top accent line
+                g2.setColor(BORDER_SUBTLE);
+                g2.fillRect(0, 0, getWidth(), 1);
+                g2.dispose();
+            }
+        };
+        statusBar.setPreferredSize(new Dimension(0, 32));
+        statusBar.setBorder(new EmptyBorder(0, 16, 0, 16));
+
+        statusDot = new JLabel("●") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getForeground());
+                g2.fill(new RoundRectangle2D.Float(4, (getHeight() - 8) / 2f, 8, 8, 8, 8));
+                g2.dispose();
+            }
+        };
+        statusDot.setForeground(ACCENT);
+        statusDot.setPreferredSize(new Dimension(18, 18));
+
+        statusLabel = new JLabel(msg("status.ready"));
+        statusLabel.setFont(FONT_SMALL);
+        statusLabel.setForeground(TEXT_SECONDARY);
+
+        JPanel statusLeftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        statusLeftPanel.setOpaque(false);
+        statusLeftPanel.add(statusDot);
+        statusLeftPanel.add(statusLabel);
+
+        statusBar.add(statusLeftPanel, BorderLayout.WEST);
+
+        // ── Split pane ──────────────────────────────────────────────────────
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, messageTablePanel, messageDetailPanel);
-        splitPane.setDividerLocation(450);
-        splitPane.setResizeWeight(0.4);
+        splitPane.setDividerLocation(500);
+        splitPane.setResizeWeight(0.45);
+        splitPane.setBorder(null);
+        splitPane.setDividerSize(6);
+        splitPane.setBackground(BG_PRIMARY);
 
+        // ── Content panel ───────────────────────────────────────────────────
+        JPanel contentPanel = new JPanel(new BorderLayout(0, 0));
+        contentPanel.setOpaque(false);
+        contentPanel.setBorder(new EmptyBorder(4, 8, 4, 8));
+        contentPanel.add(splitPane, BorderLayout.CENTER);
+
+        // ── Connection panel wrapper ────────────────────────────────────────
+        JPanel connectionWrapper = new JPanel(new BorderLayout());
+        connectionWrapper.setOpaque(false);
+        connectionWrapper.add(connectionPanel, BorderLayout.CENTER);
+
+        // ── Assemble frame ──────────────────────────────────────────────────
         setLayout(new BorderLayout(0, 0));
-        add(connectionPanel, BorderLayout.NORTH);
-        add(splitPane, BorderLayout.CENTER);
+        add(headerBar, BorderLayout.NORTH);
+
+        JPanel mainContent = new JPanel(new BorderLayout(0, 0));
+        mainContent.setBackground(BG_PRIMARY);
+        mainContent.add(connectionWrapper, BorderLayout.NORTH);
+        mainContent.add(contentPanel, BorderLayout.CENTER);
+
+        add(mainContent, BorderLayout.CENTER);
         add(statusBar, BorderLayout.SOUTH);
 
         wireEvents();
@@ -56,9 +168,38 @@ public class MainFrame extends JFrame {
         });
     }
 
+    private void setStatus(String text, Color dotColor) {
+        statusLabel.setText(text);
+        statusDot.setForeground(dotColor);
+        statusDot.repaint();
+    }
+
+    // ── Language switching ───────────────────────────────────────────────────
+
+    private void onSwitchLanguage() {
+        LocaleManager lm = LocaleManager.getInstance();
+        Locale current = lm.getLocale();
+        Locale next = current.getLanguage().equals("tr") ? Locale.ENGLISH : Locale.of("tr");
+        lm.setLocale(next);
+
+        // Recreate the frame with the new locale
+        SwingUtilities.invokeLater(() -> {
+            Point location = getLocation();
+            Dimension size = getSize();
+            dispose();
+
+            MainFrame newFrame = new MainFrame();
+            newFrame.setLocation(location);
+            newFrame.setSize(size);
+            newFrame.setVisible(true);
+        });
+    }
+
+    // ── Connection test ─────────────────────────────────────────────────────
+
     private void onTestConnection() {
         connectionPanel.setButtonsEnabled(false);
-        statusBar.setText(" Bağlantı testi yapılıyor...");
+        setStatus(msg("status.testing"), UIConstants.WARNING);
 
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override
@@ -70,17 +211,20 @@ public class MainFrame extends JFrame {
             protected void done() {
                 try {
                     String result = get();
-                    statusBar.setText(" " + result);
-                    if (result.startsWith("Bağlantı başarılı")) {
-                        JOptionPane.showMessageDialog(MainFrame.this, result, "Başarılı",
-                                JOptionPane.INFORMATION_MESSAGE);
+                    if (result.startsWith(msg("mq.connection_success", "").trim())) {
+                        setStatus(result, UIConstants.SUCCESS);
+                        JOptionPane.showMessageDialog(MainFrame.this, result,
+                                msg("dialog.success"), JOptionPane.INFORMATION_MESSAGE);
                     } else {
-                        JOptionPane.showMessageDialog(MainFrame.this, result, "Hata", JOptionPane.ERROR_MESSAGE);
+                        setStatus(result, UIConstants.ERROR);
+                        JOptionPane.showMessageDialog(MainFrame.this, result,
+                                msg("dialog.error"), JOptionPane.ERROR_MESSAGE);
                     }
                 } catch (Exception ex) {
-                    statusBar.setText(" Hata: " + ex.getMessage());
-                    JOptionPane.showMessageDialog(MainFrame.this, "Beklenmeyen hata: " + ex.getMessage(), "Hata",
-                            JOptionPane.ERROR_MESSAGE);
+                    setStatus(msg("status.error", ex.getMessage()), UIConstants.ERROR);
+                    JOptionPane.showMessageDialog(MainFrame.this,
+                            msg("dialog.unexpected_error", ex.getMessage()),
+                            msg("dialog.error"), JOptionPane.ERROR_MESSAGE);
                 } finally {
                     connectionPanel.setButtonsEnabled(true);
                 }
@@ -89,17 +233,20 @@ public class MainFrame extends JFrame {
         worker.execute();
     }
 
+    // ── Browse messages ─────────────────────────────────────────────────────
+
     private void onBrowseMessages() {
         String queueName = connectionPanel.getConfig().getQueueName();
         if (queueName == null || queueName.isBlank()) {
-            JOptionPane.showMessageDialog(this, "Lütfen bir kuyruk adı girin.", "Uyarı", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, msg("conn.dialog.queue_required"),
+                    msg("dialog.warning"), JOptionPane.WARNING_MESSAGE);
             return;
         }
 
         connectionPanel.setButtonsEnabled(false);
         messageTablePanel.clearMessages();
         messageDetailPanel.clear();
-        statusBar.setText(" Mesajlar okunuyor...");
+        setStatus(msg("status.reading"), UIConstants.WARNING);
 
         int limit = connectionPanel.getMessageLimit();
 
@@ -114,16 +261,16 @@ public class MainFrame extends JFrame {
                 try {
                     List<MqMessage> messages = get();
                     messageTablePanel.setMessages(messages);
-                    statusBar.setText(" " + messages.size() + " mesaj bulundu.");
+                    setStatus(msg("status.messages_found", messages.size()), UIConstants.SUCCESS);
                     if (messages.isEmpty()) {
-                        JOptionPane.showMessageDialog(MainFrame.this, "Kuyrukta mesaj bulunamadı.", "Bilgi",
-                                JOptionPane.INFORMATION_MESSAGE);
+                        JOptionPane.showMessageDialog(MainFrame.this, msg("msg.no_messages"),
+                                msg("dialog.info"), JOptionPane.INFORMATION_MESSAGE);
                     }
                 } catch (Exception ex) {
                     String errorMsg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
-                    statusBar.setText(" Hata: " + errorMsg);
-                    JOptionPane.showMessageDialog(MainFrame.this, "Mesajlar okunamadı:\n" + errorMsg, "Hata",
-                            JOptionPane.ERROR_MESSAGE);
+                    setStatus(msg("status.error", errorMsg), UIConstants.ERROR);
+                    JOptionPane.showMessageDialog(MainFrame.this, msg("msg.read_error", errorMsg),
+                            msg("dialog.error"), JOptionPane.ERROR_MESSAGE);
                 } finally {
                     connectionPanel.setButtonsEnabled(true);
                 }

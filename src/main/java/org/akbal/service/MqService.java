@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
 
+import static org.akbal.i18n.LocaleManager.msg;
+
 public class MqService {
 
     private Hashtable<String, Object> buildConnectionProperties(MqConnectionConfig config) {
@@ -38,9 +40,9 @@ public class MqService {
         try {
             Hashtable<String, Object> props = buildConnectionProperties(config);
             queueManager = new MQQueueManager(config.getQueueManager(), props);
-            return "Bağlantı başarılı! Queue Manager: " + queueManager.getName().trim();
+            return msg("mq.connection_success", queueManager.getName().trim());
         } catch (MQException e) {
-            return "Bağlantı hatası: " + formatMqException(e);
+            return msg("mq.connection_error", formatMqException(e));
         } finally {
             disconnect(queueManager);
         }
@@ -90,7 +92,7 @@ public class MqService {
                 try {
                     msg.setPayload(mqMsg.readStringOfByteLength(mqMsg.getMessageLength()));
                 } catch (Exception e) {
-                    msg.setPayload("[Binary veri - metin olarak okunamadı]");
+                    msg.setPayload(msg("mq.binary_data"));
                 }
 
                 messages.add(msg);

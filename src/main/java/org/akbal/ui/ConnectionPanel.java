@@ -4,16 +4,20 @@ import org.akbal.model.MqConnectionConfig;
 import org.akbal.service.ConnectionStore;
 
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.util.List;
 
+import static org.akbal.i18n.LocaleManager.msg;
+import static org.akbal.ui.UIConstants.*;
+
 public class ConnectionPanel extends JPanel {
 
     private final JComboBox<MqConnectionConfig> savedConnectionsCombo = new JComboBox<>();
-    private final JButton loadButton = new JButton("Yükle");
-    private final JButton saveButton = new JButton("Kaydet");
-    private final JButton deleteButton = new JButton("Sil");
+    private final JButton loadButton;
+    private final JButton saveButton;
+    private final JButton deleteButton;
 
     private final JTextField hostField = new JTextField("localhost", 15);
     private final JTextField portField = new JTextField("1414", 6);
@@ -24,58 +28,98 @@ public class ConnectionPanel extends JPanel {
     private final JPasswordField passwordField = new JPasswordField(10);
     private final JSpinner limitSpinner = new JSpinner(new SpinnerNumberModel(100, 1, 10000, 10));
 
-    private final JButton testButton = new JButton("Bağlantı Testi");
-    private final JButton browseButton = new JButton("Mesajları Getir");
+    private final JButton testButton;
+    private final JButton browseButton;
 
     private final ConnectionStore connectionStore = new ConnectionStore();
 
     public ConnectionPanel() {
-        setLayout(new BorderLayout(5, 5));
-        setBorder(BorderFactory.createTitledBorder("IBM MQ Bağlantı Ayarları"));
+        setLayout(new BorderLayout(0, 4));
+        setOpaque(false);
+        setBorder(new EmptyBorder(PANEL_INSETS));
 
-        // Saved connections row
-        JPanel savedPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 3));
-        savedPanel.add(new JLabel("Kayıtlı Bağlantılar:"));
-        savedConnectionsCombo.setPreferredSize(new Dimension(250, 28));
+        // ── Styled buttons ──────────────────────────────────────────────────
+        loadButton = createStyledButton(msg("conn.btn.load"), ButtonStyle.SUBTLE);
+        saveButton = createStyledButton(msg("conn.btn.save"), ButtonStyle.SUBTLE);
+        deleteButton = createStyledButton(msg("conn.btn.delete"), ButtonStyle.SUBTLE);
+        testButton = createStyledButton(msg("conn.btn.test"), ButtonStyle.OUTLINE);
+        browseButton = createStyledButton(msg("conn.btn.browse"), ButtonStyle.FILLED);
+
+        loadButton.setPreferredSize(new Dimension(90, BUTTON_HEIGHT));
+        saveButton.setPreferredSize(new Dimension(100, BUTTON_HEIGHT));
+        deleteButton.setPreferredSize(new Dimension(75, BUTTON_HEIGHT));
+        testButton.setPreferredSize(new Dimension(170, BUTTON_HEIGHT));
+        browseButton.setPreferredSize(new Dimension(180, BUTTON_HEIGHT));
+
+        // ── Style all inputs ────────────────────────────────────────────────
+        styleTextField(hostField);
+        styleTextField(portField);
+        styleTextField(channelField);
+        styleTextField(queueManagerField);
+        styleTextField(queueNameField);
+        styleTextField(usernameField);
+        styleTextField(passwordField);
+        styleSpinner(limitSpinner);
+        styleComboBox(savedConnectionsCombo);
+
+        // ── Section header ──────────────────────────────────────────────────
+        JPanel sectionHeader = createSectionHeader("🔗", msg("conn.section_title"));
+
+        // ── Saved connections row ───────────────────────────────────────────
+        JPanel savedPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        savedPanel.setOpaque(false);
+
+        JLabel savedLabel = new JLabel(msg("conn.saved"));
+        savedLabel.setFont(FONT_BODY);
+        savedLabel.setForeground(TEXT_SECONDARY);
+        savedPanel.add(savedLabel);
+
+        savedConnectionsCombo.setPreferredSize(new Dimension(260, INPUT_HEIGHT));
         savedPanel.add(savedConnectionsCombo);
-        loadButton.setPreferredSize(new Dimension(70, 28));
-        saveButton.setPreferredSize(new Dimension(70, 28));
-        deleteButton.setPreferredSize(new Dimension(55, 28));
         savedPanel.add(loadButton);
         savedPanel.add(saveButton);
         savedPanel.add(deleteButton);
 
-        // Fields
-        JPanel fieldsPanel = new JPanel(new GridBagLayout());
+        // ── Fields grid ─────────────────────────────────────────────────────
+        JPanel fieldsCard = createCardPanel();
+        fieldsCard.setLayout(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(3, 5, 3, 5);
+        gbc.insets = new Insets(6, 8, 6, 8);
         gbc.anchor = GridBagConstraints.WEST;
 
         // Row 0
-        addField(fieldsPanel, gbc, 0, 0, "Host:", hostField);
-        addField(fieldsPanel, gbc, 2, 0, "Port:", portField);
-        addField(fieldsPanel, gbc, 4, 0, "Channel:", channelField);
+        addField(fieldsCard, gbc, 0, 0, msg("conn.label.host"), hostField);
+        addField(fieldsCard, gbc, 2, 0, msg("conn.label.port"), portField);
+        addField(fieldsCard, gbc, 4, 0, msg("conn.label.channel"), channelField);
 
         // Row 1
-        addField(fieldsPanel, gbc, 0, 1, "Queue Manager:", queueManagerField);
-        addField(fieldsPanel, gbc, 2, 1, "Queue Name:", queueNameField);
-        addField(fieldsPanel, gbc, 4, 1, "Limit:", limitSpinner);
+        addField(fieldsCard, gbc, 0, 1, msg("conn.label.queue_manager"), queueManagerField);
+        addField(fieldsCard, gbc, 2, 1, msg("conn.label.queue_name"), queueNameField);
+        addField(fieldsCard, gbc, 4, 1, msg("conn.label.limit"), limitSpinner);
 
         // Row 2
-        addField(fieldsPanel, gbc, 0, 2, "Kullanıcı:", usernameField);
-        addField(fieldsPanel, gbc, 2, 2, "Şifre:", passwordField);
+        addField(fieldsCard, gbc, 0, 2, msg("conn.label.username"), usernameField);
+        addField(fieldsCard, gbc, 2, 2, msg("conn.label.password"), passwordField);
 
-        JPanel topPanel = new JPanel(new BorderLayout());
-        topPanel.add(savedPanel, BorderLayout.NORTH);
-        topPanel.add(fieldsPanel, BorderLayout.CENTER);
-
-        add(topPanel, BorderLayout.CENTER);
-
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
-        testButton.setPreferredSize(new Dimension(140, 32));
-        browseButton.setPreferredSize(new Dimension(140, 32));
+        // ── Buttons row ─────────────────────────────────────────────────────
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 6));
+        buttonPanel.setOpaque(false);
         buttonPanel.add(testButton);
         buttonPanel.add(browseButton);
+
+        // ── Assemble ────────────────────────────────────────────────────────
+        JPanel topPanel = new JPanel(new BorderLayout(0, 4));
+        topPanel.setOpaque(false);
+        topPanel.add(sectionHeader, BorderLayout.NORTH);
+
+        JPanel innerPanel = new JPanel(new BorderLayout(0, 8));
+        innerPanel.setOpaque(false);
+        innerPanel.add(savedPanel, BorderLayout.NORTH);
+        innerPanel.add(fieldsCard, BorderLayout.CENTER);
+
+        topPanel.add(innerPanel, BorderLayout.CENTER);
+
+        add(topPanel, BorderLayout.CENTER);
         add(buttonPanel, BorderLayout.SOUTH);
 
         // Wire save/load/delete
@@ -91,7 +135,10 @@ public class ConnectionPanel extends JPanel {
         gbc.gridy = y;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
-        panel.add(new JLabel(label), gbc);
+        JLabel lbl = new JLabel(label);
+        lbl.setFont(FONT_BODY);
+        lbl.setForeground(TEXT_SECONDARY);
+        panel.add(lbl, gbc);
 
         gbc.gridx = x + 1;
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -160,8 +207,8 @@ public class ConnectionPanel extends JPanel {
     }
 
     private void onSaveConnection() {
-        String name = JOptionPane.showInputDialog(this, "Bağlantı adı:", "Bağlantıyı Kaydet",
-                JOptionPane.PLAIN_MESSAGE);
+        String name = JOptionPane.showInputDialog(this, msg("conn.dialog.save_prompt"),
+                msg("conn.dialog.save_title"), JOptionPane.PLAIN_MESSAGE);
         if (name == null || name.isBlank())
             return;
 
@@ -178,8 +225,8 @@ public class ConnectionPanel extends JPanel {
             }
         }
 
-        JOptionPane.showMessageDialog(this, "Bağlantı kaydedildi: " + name, "Başarılı",
-                JOptionPane.INFORMATION_MESSAGE);
+        JOptionPane.showMessageDialog(this, msg("conn.dialog.save_success", name),
+                msg("dialog.success"), JOptionPane.INFORMATION_MESSAGE);
     }
 
     private void onDeleteConnection() {
@@ -188,8 +235,8 @@ public class ConnectionPanel extends JPanel {
             return;
 
         int confirm = JOptionPane.showConfirmDialog(this,
-                "\"" + selected.getName() + "\" bağlantısını silmek istediğinize emin misiniz?",
-                "Bağlantıyı Sil", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                msg("conn.dialog.delete_confirm", selected.getName()),
+                msg("conn.dialog.delete_title"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (confirm == JOptionPane.YES_OPTION) {
             connectionStore.delete(selected.getName());
             refreshSavedConnections();
