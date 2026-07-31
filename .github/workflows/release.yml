@@ -39,9 +39,11 @@ jobs:
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
       - name: Set project version
-        run: mvn versions:set -DnewVersion=${{ steps.version.outputs.VERSION }} -DgenerateBackupPoms=false
+        shell: bash
+        run: mvn versions:set "-DnewVersion=${{ steps.version.outputs.VERSION }}" -DgenerateBackupPoms=false
 
       - name: Build fat JAR
+        shell: bash
         run: mvn clean package -DskipTests -q
 
       # ── Windows: EXE + MSI ──────────────────────────────────────────────
@@ -54,7 +56,7 @@ jobs:
             --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar `
             --main-class org.akbal.Main `
             --name "MQ Viewer" `
-            --app-version ${{ steps.version.outputs.VERSION }} `
+            --app-version "${{ steps.version.outputs.VERSION }}" `
             --vendor "akbal" `
             --description "IBM MQ Message Viewer" `
             --type exe `
@@ -73,7 +75,7 @@ jobs:
             --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar `
             --main-class org.akbal.Main `
             --name "MQ Viewer" `
-            --app-version ${{ steps.version.outputs.VERSION }} `
+            --app-version "${{ steps.version.outputs.VERSION }}" `
             --vendor "akbal" `
             --description "IBM MQ Message Viewer" `
             --type msi `
@@ -96,7 +98,7 @@ jobs:
             --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar \
             --main-class org.akbal.Main \
             --name mq-viewer \
-            --app-version ${{ steps.version.outputs.VERSION }} \
+            --app-version "${{ steps.version.outputs.VERSION }}" \
             --vendor "akbal" \
             --description "IBM MQ Message Viewer" \
             --type deb \
@@ -111,7 +113,7 @@ jobs:
             --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar \
             --main-class org.akbal.Main \
             --name mq-viewer \
-            --app-version ${{ steps.version.outputs.VERSION }} \
+            --app-version "${{ steps.version.outputs.VERSION }}" \
             --vendor "akbal" \
             --description "IBM MQ Message Viewer" \
             --type rpm \
@@ -127,7 +129,7 @@ jobs:
             --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar \
             --main-class org.akbal.Main \
             --name "MQ Viewer" \
-            --app-version ${{ steps.version.outputs.VERSION }} \
+            --app-version "${{ steps.version.outputs.VERSION }}" \
             --vendor "akbal" \
             --description "IBM MQ Message Viewer" \
             --type dmg \
@@ -142,7 +144,7 @@ jobs:
             --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar \
             --main-class org.akbal.Main \
             --name "MQ Viewer" \
-            --app-version ${{ steps.version.outputs.VERSION }} \
+            --app-version "${{ steps.version.outputs.VERSION }}" \
             --vendor "akbal" \
             --description "IBM MQ Message Viewer" \
             --type pkg \
