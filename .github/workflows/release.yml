@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact-name: windows
+          - os: ubuntu-latest
+            artifact-name: linux
+          - os: macos-latest
+            artifact-name: macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Set project version
+        run: mvn versions:set -DnewVersion=${{ steps.version.outputs.VERSION }} -DgenerateBackupPoms=false
+
+      - name: Build fat JAR
+        run: mvn clean package -DskipTests -q
+
+      # ── Windows: EXE + MSI ──────────────────────────────────────────────
+      - name: Package Windows EXE
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          jpackage `
+            --input target `
+            --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar `
+            --main-class org.akbal.Main `
+            --name "MQ Viewer" `
+            --app-version ${{ steps.version.outputs.VERSION }} `
+            --vendor "akbal" `
+            --description "IBM MQ Message Viewer" `
+            --type exe `
+            --dest dist `
+            --win-shortcut `
+            --win-menu `
+            --win-menu-group "MQ Viewer" `
+            --java-options "-Dfile.encoding=UTF-8"
+
+      - name: Package Windows MSI
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          jpackage `
+            --input target `
+            --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar `
+            --main-class org.akbal.Main `
+            --name "MQ Viewer" `
+            --app-version ${{ steps.version.outputs.VERSION }} `
+            --vendor "akbal" `
+            --description "IBM MQ Message Viewer" `
+            --type msi `
+            --dest dist `
+            --win-shortcut `
+            --win-menu `
+            --win-menu-group "MQ Viewer" `
+            --java-options "-Dfile.encoding=UTF-8"
+
+      # ── Linux: DEB + RPM ────────────────────────────────────────────────
+      - name: Install RPM tools
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - name: Package Linux DEB
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          jpackage \
+            --input target \
+            --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar \
+            --main-class org.akbal.Main \
+            --name mq-viewer \
+            --app-version ${{ steps.version.outputs.VERSION }} \
+            --vendor "akbal" \
+            --description "IBM MQ Message Viewer" \
+            --type deb \
+            --dest dist \
+            --java-options "-Dfile.encoding=UTF-8"
+
+      - name: Package Linux RPM
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          jpackage \
+            --input target \
+            --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar \
+            --main-class org.akbal.Main \
+            --name mq-viewer \
+            --app-version ${{ steps.version.outputs.VERSION }} \
+            --vendor "akbal" \
+            --description "IBM MQ Message Viewer" \
+            --type rpm \
+            --dest dist \
+            --java-options "-Dfile.encoding=UTF-8"
+
+      # ── macOS: DMG + PKG ────────────────────────────────────────────────
+      - name: Package macOS DMG
+        if: matrix.os == 'macos-latest'
+        run: |
+          jpackage \
+            --input target \
+            --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar \
+            --main-class org.akbal.Main \
+            --name "MQ Viewer" \
+            --app-version ${{ steps.version.outputs.VERSION }} \
+            --vendor "akbal" \
+            --description "IBM MQ Message Viewer" \
+            --type dmg \
+            --dest dist \
+            --java-options "-Dfile.encoding=UTF-8"
+
+      - name: Package macOS PKG
+        if: matrix.os == 'macos-latest'
+        run: |
+          jpackage \
+            --input target \
+            --main-jar mq-viewer-${{ steps.version.outputs.VERSION }}.jar \
+            --main-class org.akbal.Main \
+            --name "MQ Viewer" \
+            --app-version ${{ steps.version.outputs.VERSION }} \
+            --vendor "akbal" \
+            --description "IBM MQ Message Viewer" \
+            --type pkg \
+            --dest dist \
+            --java-options "-Dfile.encoding=UTF-8"
+
+      # ── Upload artifacts ────────────────────────────────────────────────
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.artifact-name }}
+          path: dist/*
+
+  # ── Create GitHub Release ─────────────────────────────────────────────
+  release:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lhR dist/
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "MQ Viewer v${{ steps.version.outputs.VERSION }}"
+          body: |
+            ## MQ Viewer v${{ steps.version.outputs.VERSION }}
+
+            ### 📥 Downloads
+
+            | Platform | Installer | Type |
+            |----------|-----------|------|
+            | 🪟 Windows | `MQ Viewer-${{ steps.version.outputs.VERSION }}.exe` | EXE Installer |
+            | 🪟 Windows | `MQ Viewer-${{ steps.version.outputs.VERSION }}.msi` | MSI Installer |
+            | 🐧 Linux | `mq-viewer_${{ steps.version.outputs.VERSION }}-1_amd64.deb` | DEB Package |
+            | 🐧 Linux | `mq-viewer-${{ steps.version.outputs.VERSION }}-1.x86_64.rpm` | RPM Package |
+            | 🍎 macOS | `MQ Viewer-${{ steps.version.outputs.VERSION }}.dmg` | DMG Image |
+            | 🍎 macOS | `MQ Viewer-${{ steps.version.outputs.VERSION }}.pkg` | PKG Installer |
+
+            ### ⚡ Requirements
+            - Java 21+ runtime is **bundled** — no separate JDK installation needed.
+
+            ### 🆕 What's New
+            - See [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          draft: false
+          prerelease: false
+          files: dist/*
+          generate_release_notes: true
