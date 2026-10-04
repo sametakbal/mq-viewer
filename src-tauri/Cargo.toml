@@ -1,0 +1,29 @@
+[package]
+name = "mq-viewer"
+version = "2.0.0"
+description = "IBM MQ queue viewer"
+authors = ["Samet Akbal"]
+edition = "2021"
+
+[lib]
+name = "mq_viewer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "sync", "rt", "macros", "time"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+dirs = "6"
+base64 = "0.22"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
