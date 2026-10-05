@@ -115,7 +115,7 @@ export default function ErrorView({ connId, error, retryable, onRetry, queue, hi
             </>
           )}
           {hint && <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14 }}>{hint}</div>}
-          <div className="mono" style={{ padding: "9px 11px", background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 5, fontSize: 11.5, lineHeight: 1.5, color: "var(--muted)", wordBreak: "break-word" }}>{logLine(error)}</div>
+          <div className="mono" style={{ padding: "9px 11px", background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 5, fontSize: 11.5, lineHeight: 1.5, color: "var(--muted)", wordBreak: "break-word", whiteSpace: "pre-wrap", maxHeight: 260, overflow: "auto" }}>{logLine(error)}</div>
         </div>
         <div style={{ padding: "14px 24px", display: "flex", alignItems: "center", gap: 8 }}>
           <button className="btn primary" onClick={retry} disabled={st?.state === "connecting"}><Icon name="ph-arrows-clockwise" />Retry</button>

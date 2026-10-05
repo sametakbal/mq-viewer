@@ -24,6 +24,13 @@ type Slot = Arc<Mutex<Option<Running>>>;
 const STDERR_LOG: &str = "sidecar.log";
 /// The log is appended to across restarts, so a crash survives the respawn; start over past this.
 const STDERR_LOG_MAX: u64 = 5 * 1024 * 1024;
+/// Written to the log before each start, so the tail of the current run can be told apart.
+const START_MARKER: &str = "--- sidecar starting";
+/// How many log lines of the run that died are attached to the error.
+const LOG_TAIL_LINES: usize = 20;
+/// Picked up by every JVM at startup; corporate machines often set these (agents, proxies, heap
+/// sizes) and a bad entry makes the bundled runtime exit before it reads a single request.
+const JVM_ENV_OPTIONS: [&str; 3] = ["JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS"];
 
 /// Where to find the JVM and the shaded jar.
 #[derive(Clone, Debug)]
@@ -100,6 +107,7 @@ impl Sidecar {
         cmd.arg("-Xss1m")
             .arg("-XX:+UseSerialGC")
             .arg("-Dfile.encoding=UTF-8")
+            .arg(format!("-Djava.io.tmpdir={}", l.work_dir.display()))
             .arg("-Dcom.ibm.msg.client.commonservices.log.outputName=mqviewer-client.log")
             .arg("-jar")
             .arg(&l.jar)
@@ -108,6 +116,9 @@ impl Sidecar {
             .stdout(Stdio::piped())
             .stderr(open_stderr_log(&l.work_dir))
             .kill_on_drop(true);
+        for name in JVM_ENV_OPTIONS {
+            cmd.env_remove(name);
+        }
         #[cfg(windows)]
         {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -125,6 +136,7 @@ impl Sidecar {
         let pid = child.id();
         let log_path = l.work_dir.join(STDERR_LOG);
         tokio::spawn(async move {
+            let mut ready = false;
             let mut lines = BufReader::new(stdout).split(b'\n');
             // Decoded lossily: a stray non-UTF-8 byte must not end the channel while the process lives on.
             while let Ok(Some(raw)) = lines.next_segment().await {
@@ -132,6 +144,9 @@ impl Sidecar {
                 let Ok(msg) = serde_json::from_str::<Value>(line.trim_end()) else {
                     continue;
                 };
+                if msg.get("ready").is_some() {
+                    ready = true;
+                }
                 let Some(id) = msg.get("id").and_then(Value::as_u64) else {
                     continue;
                 };
@@ -144,13 +159,16 @@ impl Sidecar {
                 }
             }
             // stdout closed: the process is gone, fail whatever was still waiting.
-            let message = format!(
-                "The MQ sidecar process exited unexpectedly ({}). See {} for details.",
-                exit_status(&running, pid).await,
-                log_path.display()
-            );
+            let status = exit_status(&running, pid).await;
+            let message = if ready {
+                format!("The MQ sidecar process exited unexpectedly ({status}). See {} for details.", log_path.display())
+            } else {
+                format!("The Java runtime could not start the MQ sidecar ({status}). See {} for details.", log_path.display())
+            };
+            let mut error = local_error("SIDECAR_EXITED", &message);
+            error["detail"] = log_tail(&log_path).map_or(Value::Null, Value::String);
             for (_, tx) in pending.lock().await.drain() {
-                let _ = tx.send(Err(local_error("SIDECAR_EXITED", &message)));
+                let _ = tx.send(Err(error.clone()));
             }
         });
 
@@ -177,11 +195,24 @@ fn open_stderr_log(dir: &Path) -> Stdio {
     match opts.open(&path) {
         Ok(mut f) => {
             let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-            let _ = writeln!(f, "--- sidecar starting (unix time {secs}) ---");
+            let _ = writeln!(f, "{START_MARKER} (unix time {secs}) ---");
             Stdio::from(f)
         }
         Err(_) => Stdio::null(),
     }
+}
+
+/// The last lines the current run wrote to the stderr log, if it wrote any.
+fn log_tail(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let run = match text.rfind(START_MARKER) {
+        Some(i) => text[i..].split_once('\n').map_or("", |(_, rest)| rest),
+        None => &text,
+    };
+    let lines: Vec<&str> = run.lines().filter(|l| !l.trim().is_empty()).collect();
+    let tail = lines[lines.len().saturating_sub(LOG_TAIL_LINES)..].join("\n");
+    (!tail.is_empty()).then_some(tail)
 }
 
 /// How the process `pid` ended, as long as it is still the one in `slot` (not already reaped and
@@ -248,12 +279,55 @@ mod tests {
         let err = sidecar.call("ping", json!({})).await.unwrap_err();
         assert_eq!(err["name"], "SIDECAR_EXITED");
         let message = err["message"].as_str().unwrap();
+        assert!(message.contains("could not start"), "{message}");
         assert!(message.contains("exit code"), "{message}");
+        let detail = err["detail"].as_str().unwrap();
+        assert!(detail.contains("broken.jar"), "{detail}");
+        assert!(!detail.contains(START_MARKER), "{detail}");
 
         let log = std::fs::read_to_string(dir.join(STDERR_LOG)).unwrap();
         assert!(log.contains("broken.jar"), "{log}");
 
         drop(sidecar);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn jvm_options_from_the_environment_are_ignored() {
+        let java = if cfg!(windows) { "java.exe" } else { "java" };
+        if std::process::Command::new(java).arg("-version").output().is_err() {
+            return; // no JVM on this machine
+        }
+        let dir = std::env::temp_dir().join(format!("mqviewer-sidecar-env-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let jar = dir.join("broken.jar");
+        std::fs::write(&jar, "not a jar").unwrap();
+
+        // A missing agent would stop the JVM before it even looks at the jar.
+        std::env::set_var("JAVA_TOOL_OPTIONS", "-javaagent:/mqviewer-missing-agent.jar");
+        let sidecar = Sidecar::new(Launch { java: PathBuf::from(java), jar, work_dir: dir.clone() });
+        let err = sidecar.call("ping", json!({})).await.unwrap_err();
+        std::env::remove_var("JAVA_TOOL_OPTIONS");
+
+        let detail = err["detail"].as_str().unwrap();
+        assert!(!detail.contains("mqviewer-missing-agent"), "{detail}");
+        assert!(detail.contains("broken.jar"), "{detail}");
+
+        drop(sidecar);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn log_tail_keeps_only_the_last_run() {
+        let dir = std::env::temp_dir().join(format!("mqviewer-sidecar-tail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(STDERR_LOG);
+        std::fs::write(&path, format!("{START_MARKER} 1 ---\nold crash\n{START_MARKER} 2 ---\n\nnew crash\n")).unwrap();
+        assert_eq!(log_tail(&path).as_deref(), Some("new crash"));
+
+        std::fs::write(&path, format!("{START_MARKER} 3 ---\n")).unwrap();
+        assert_eq!(log_tail(&path), None);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

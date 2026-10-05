@@ -105,7 +105,11 @@ export function explain(err: MqError): Explained {
   if (err.name === "SIDECAR_UNAVAILABLE" || err.name === "SIDECAR_EXITED") {
     return {
       code: 0, name: err.name, icon: "ph-plug", edit: "connection", title: "MQ engine is not running",
-      desc: err.message, causes: ["The bundled Java runtime could not start", "The sidecar jar is missing from the installation"],
+      desc: err.message, causes: [
+        "Security software (antivirus / EDR / AppLocker) blocked or killed the bundled java.exe",
+        "The bundled Java runtime could not start",
+        "The sidecar jar is missing from the installation",
+      ],
     };
   }
   return {
