@@ -7,3 +7,5 @@ src-tauri/resources/
 .idea/
 *.log
 mqjms.log*
+/target/
+.vscode/
