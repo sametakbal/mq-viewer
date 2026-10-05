@@ -198,5 +198,5 @@ select option { background: var(--panel); color: var(--text); }
 .msg-row:hover { background: var(--hover); }
 .msg-row.fresh { animation: mqfresh 4s ease-out; }
 .q-grid {
-  display: grid; grid-template-columns: minmax(0, 1fr) 96px 280px 96px 96px 76px 76px 100px; align-items: center; padding: 0 20px;
+  display: grid; grid-template-columns: minmax(0, 1fr) 96px 280px 96px 96px 76px 76px 150px; align-items: center; padding: 0 20px;
 }

@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.GregorianCalendar;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -58,7 +59,7 @@ public final class MqOps {
                 pool.disconnect(p.path("connId").asText());
                 yield Map.of("ok", true);
             }
-            case "listQueues" -> pool.with(connId(p), this::listQueues);
+            case "listQueues" -> pool.with(connId(p), h -> listQueues(h, strings(p.path("known"))));
             case "browse" -> pool.with(connId(p), h -> browse(h.qmgr, queue(p),
                     p.path("offset").asInt(0), p.path("limit").asInt(50)));
             case "detail" -> pool.with(connId(p), h -> detail(h.qmgr, queue(p), p.path("msgId").asText()));
@@ -128,17 +129,130 @@ public final class MqOps {
 
     // ── queues ──────────────────────────────────────────────────────────────
 
+    /**
+     * @param access what this user may do on the queue; null when the list came from PCF, which
+     *               already leaves out queues the user has no display authority for.
+     * @param error  set when a probed queue could not be used at all (not found, no authority).
+     */
     public record QueueInfo(String name, String type, Integer depth, Integer maxDepth, Integer ipprocs,
                             Integer opprocs, String target, String description, boolean getInhibited,
-                            boolean putInhibited) {
+                            boolean putInhibited, Access access, String error) {
     }
 
-    private List<QueueInfo> listQueues(ConnectionPool.Handle h) throws Exception {
-        if (h.pcf == null) {
-            throw new Errors.OpException(new Errors.MqError(CMQC.MQRC_NOT_AUTHORIZED, "MQRC_NOT_AUTHORIZED", 2,
-                    "Listing queues needs access to SYSTEM.ADMIN.COMMAND.QUEUE (PCF). Open a queue by name instead.",
-                    null, null), null);
+    public record Access(boolean inquire, boolean browse, boolean put, boolean get) {
+        boolean any() {
+            return inquire || browse || put || get;
         }
+    }
+
+    /** "pcf": every queue the user may display. "probe": only the known queues, checked one by one. */
+    public record QueueList(String source, List<QueueInfo> queues) {
+    }
+
+    private QueueList listQueues(ConnectionPool.Handle h, List<String> known) throws Exception {
+        if (h.pcf != null) {
+            try {
+                return new QueueList("pcf", inquireQueues(h));
+            } catch (Exception e) {
+                // Connected to the command queue but not allowed to inquire: same as no PCF.
+                if (Errors.toError(e).code() != CMQC.MQRC_NOT_AUTHORIZED) {
+                    throw e;
+                }
+            }
+        }
+        List<QueueInfo> out = new ArrayList<>();
+        for (String name : new LinkedHashSet<>(known.stream().map(String::trim).filter(s -> !s.isEmpty()).toList())) {
+            out.add(probe(h.qmgr, name));
+        }
+        return new QueueList("probe", out);
+    }
+
+    /**
+     * Works out what the user can do on one queue without PCF: one MQOPEN per kind of access
+     * (no message is read or written), plus MQINQ for the attributes when inquire is allowed.
+     */
+    static QueueInfo probe(MQQueueManager qm, String name) {
+        int inq = tryOpen(qm, name, CMQC.MQOO_INQUIRE);
+        if (inq == CMQC.MQRC_UNKNOWN_OBJECT_NAME) {
+            return new QueueInfo(name, "Unknown", null, null, null, null, null, null, false, false,
+                    new Access(false, false, false, false), "MQRC_UNKNOWN_OBJECT_NAME");
+        }
+        Access access = new Access(allowed(inq),
+                allowed(tryOpen(qm, name, CMQC.MQOO_BROWSE)),
+                allowed(tryOpen(qm, name, CMQC.MQOO_OUTPUT)),
+                allowed(tryOpen(qm, name, CMQC.MQOO_INPUT_AS_Q_DEF)));
+        if (!access.any()) {
+            return new QueueInfo(name, "Unknown", null, null, null, null, null, null, false, false, access,
+                    "MQRC_NOT_AUTHORIZED");
+        }
+        if (!access.inquire()) {
+            return new QueueInfo(name, "Unknown", null, null, null, null, null, null, false, false, access, null);
+        }
+        try {
+            MQQueue q = qm.accessQueue(name, CMQC.MQOO_INQUIRE | CMQC.MQOO_FAIL_IF_QUIESCING);
+            try {
+                int type = q.getQueueType();
+                boolean local = type == CMQC.MQQT_LOCAL;
+                String target = null;
+                if (type == CMQC.MQQT_ALIAS) {
+                    target = inquireString(q, CMQC.MQCA_BASE_OBJECT_NAME, CMQC.MQ_Q_NAME_LENGTH);
+                } else if (type == CMQC.MQQT_REMOTE) {
+                    String rq = inquireString(q, CMQC.MQCA_REMOTE_Q_NAME, CMQC.MQ_Q_NAME_LENGTH);
+                    String rqm = inquireString(q, CMQC.MQCA_REMOTE_Q_MGR_NAME, CMQC.MQ_Q_MGR_NAME_LENGTH);
+                    target = trim(rq) + (rqm == null || rqm.isEmpty() ? "" : " @ " + rqm);
+                }
+                return new QueueInfo(name, typeName(type),
+                        local ? q.getCurrentDepth() : null,
+                        local ? q.getMaximumDepth() : null,
+                        local ? q.getOpenInputCount() : null,
+                        local ? q.getOpenOutputCount() : null,
+                        target, inquireString(q, CMQC.MQCA_Q_DESC, CMQC.MQ_Q_DESC_LENGTH),
+                        type != CMQC.MQQT_REMOTE && q.getInhibitGet() == CMQC.MQQA_GET_INHIBITED,
+                        q.getInhibitPut() == CMQC.MQQA_PUT_INHIBITED,
+                        access, null);
+            } finally {
+                q.close();
+            }
+        } catch (MQException e) {
+            return new QueueInfo(name, "Unknown", null, null, null, null, null, null, false, false, access, null);
+        }
+    }
+
+    /** Reason code of opening and closing `name` with `options`; 0 when it opened. */
+    private static int tryOpen(MQQueueManager qm, String name, int options) {
+        try {
+            qm.accessQueue(name, options | CMQC.MQOO_FAIL_IF_QUIESCING).close();
+            return 0;
+        } catch (MQException e) {
+            return e.reasonCode;
+        }
+    }
+
+    /** In use by someone else (2042) still means the open passed the authority check. */
+    static boolean allowed(int reason) {
+        return reason == 0 || reason == CMQC.MQRC_OBJECT_IN_USE;
+    }
+
+    private static String inquireString(MQQueue q, int selector, int length) {
+        try {
+            return q.getAttributeString(selector, length).trim();
+        } catch (MQException e) {
+            return null;
+        }
+    }
+
+    private static String typeName(int type) {
+        return switch (type) {
+            case CMQC.MQQT_LOCAL -> "Local";
+            case CMQC.MQQT_ALIAS -> "Alias";
+            case CMQC.MQQT_REMOTE -> "Remote";
+            case CMQC.MQQT_MODEL -> "Model";
+            case CMQC.MQQT_CLUSTER -> "Cluster";
+            default -> "Unknown";
+        };
+    }
+
+    private List<QueueInfo> inquireQueues(ConnectionPool.Handle h) throws Exception {
         PCFMessage req = new PCFMessage(MQConstants.MQCMD_INQUIRE_Q);
         req.addParameter(MQConstants.MQCA_Q_NAME, "*");
         req.addParameter(MQConstants.MQIA_Q_TYPE, MQConstants.MQQT_ALL);
@@ -158,14 +272,7 @@ public final class MqOps {
                 // Reply queues of PCF agents (ours included) — not something to browse.
                 continue;
             }
-            String typeName = type == null ? "Unknown" : switch (type) {
-                case MQConstants.MQQT_LOCAL -> "Local";
-                case MQConstants.MQQT_ALIAS -> "Alias";
-                case MQConstants.MQQT_REMOTE -> "Remote";
-                case MQConstants.MQQT_MODEL -> "Model";
-                case MQConstants.MQQT_CLUSTER -> "Cluster";
-                default -> "Unknown";
-            };
+            String typeName = type == null ? "Unknown" : typeName(type);
             String target = null;
             if ("Alias".equals(typeName)) {
                 target = str(m, MQConstants.MQCA_BASE_OBJECT_NAME);
@@ -184,7 +291,7 @@ public final class MqOps {
                     local ? integer(m, MQConstants.MQIA_OPEN_OUTPUT_COUNT) : null,
                     target, str(m, MQConstants.MQCA_Q_DESC),
                     getInh != null && getInh == MQConstants.MQQA_GET_INHIBITED,
-                    putInh != null && putInh == MQConstants.MQQA_PUT_INHIBITED));
+                    putInh != null && putInh == MQConstants.MQQA_PUT_INHIBITED, null, null));
         }
         return out;
     }

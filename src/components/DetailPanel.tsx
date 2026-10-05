@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
-import { useApp, type PayloadView, type Tab } from "../state";
+import { queueAccess, useApp, type PayloadView, type Tab } from "../state";
 import { api, asMqError } from "../lib/rpc";
 import { b64ToBytes, bytes, copyText, dateOf, idText, isZeroId, n, timeOf } from "../lib/format";
 import { hexRows, jsonLines, xmlLines, type Line } from "../lib/highlight";
 import { exportMessages, savePayload } from "../lib/transfer";
 import { controlSummary, segments } from "../lib/control";
 import type { Message } from "../lib/types";
-import { resendDraft, visibleMessages } from "./BrowseView";
+import { NO_GET, NO_PUT, resendDraft, visibleMessages } from "./BrowseView";
 import { Icon, Segmented, Spinner } from "./ui";
 
 export default function DetailPanel({ tab }: { tab: Tab }) {
@@ -14,6 +14,9 @@ export default function DetailPanel({ tab }: { tab: Tab }) {
   const ccsid = useApp((s) => s.settings.defaultCcsid);
   const showCtl = useApp((s) => s.settings.showControlChars);
   const saveSettings = useApp((s) => s.saveSettings);
+  const access = useApp((s) => queueAccess(s, tab.connId, tab.queue ?? ""));
+  const canPut = access?.put ?? true;
+  const canGet = access?.get ?? true;
   const { patchBrowse, setOverlay, replaceMessage, showToast } = useApp.getState();
   const [loadingFull, setLoadingFull] = useState(false);
   const m = b?.messages.find((x) => x.msgId === b.selected);
@@ -179,10 +182,10 @@ export default function DetailPanel({ tab }: { tab: Tab }) {
       )}
 
       <div style={{ height: 50, flex: "none", display: "flex", alignItems: "center", gap: 8, padding: "0 12px", borderTop: "1px solid var(--line)" }}>
-        <button className="btn" onClick={() => setOverlay({ kind: "put", connId: tab.connId, queue, draft: resendDraft(m, ccsid) })}><Icon name="ph-repeat" />Copy &amp; resend</button>
+        <button className="btn" disabled={!canPut} title={canPut ? undefined : NO_PUT} onClick={() => setOverlay({ kind: "put", connId: tab.connId, queue, draft: resendDraft(m, ccsid) })}><Icon name="ph-repeat" />Copy &amp; resend</button>
         <button className="btn" onClick={() => void exportMessages(queue, [m])}><Icon name="ph-export" />Export</button>
         <div className="spacer" />
-        <button className="btn danger" onClick={() => setOverlay({ kind: "delete", connId: tab.connId, queue, msgIds: [m.msgId] })}><Icon name="ph-trash" />Delete</button>
+        <button className="btn danger" disabled={!canGet} title={canGet ? undefined : NO_GET} onClick={() => setOverlay({ kind: "delete", connId: tab.connId, queue, msgIds: [m.msgId] })}><Icon name="ph-trash" />Delete</button>
       </div>
     </aside>
   );

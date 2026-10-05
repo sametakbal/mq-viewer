@@ -25,6 +25,8 @@ export interface Connection {
   tls: TlsConfig;
   /** Queue opened by default (imported from the v1 app). */
   defaultQueue?: string;
+  /** Queues added by name, listed when the user may not list queues through PCF. */
+  queues?: string[];
 }
 
 export type Theme = "dark" | "light" | "system";
@@ -108,6 +110,26 @@ export interface QueueInfo {
   description: string | null;
   getInhibited: boolean;
   putInhibited: boolean;
+  /** What this user may do here; null when the list came from PCF (no per-queue check made). */
+  access: QueueAccess | null;
+  /** Reason name when a known queue could not be used at all (not found, not authorised). */
+  error: string | null;
+}
+
+export interface QueueAccess {
+  inquire: boolean;
+  browse: boolean;
+  put: boolean;
+  get: boolean;
+}
+
+/**
+ * "pcf": every queue the user may display. "probe": the user has no PCF access, so only the
+ * connection's known queues were checked, one by one.
+ */
+export interface QueueList {
+  source: "pcf" | "probe";
+  queues: QueueInfo[];
 }
 
 export interface MqmdField {

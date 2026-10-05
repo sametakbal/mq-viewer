@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { connOf, useApp, type Tab } from "../state";
 import { clock, n, wildcard } from "../lib/format";
-import type { QueueInfo } from "../lib/types";
+import type { MqError, QueueInfo } from "../lib/types";
 import ErrorView from "./ErrorView";
 import { Empty, Icon, Segmented, Spinner, Switch } from "./ui";
 
@@ -20,7 +20,7 @@ const ICON: Record<string, string> = { Alias: "ph-arrow-bend-down-right", Remote
 export default function QueuesView({ tab }: { tab: Tab }) {
   const st = useApp((s) => s.status[tab.connId]);
   const conn = useApp((s) => connOf(s, tab.connId));
-  const { loadQueues, openBrowse } = useApp.getState();
+  const { loadQueues, openBrowse, setOverlay, removeQueue } = useApp.getState();
   const [filter, setFilter] = useState("");
   const [hideSys, setHideSys] = useState(true);
   const [type, setType] = useState<TypeFilter>("All");
@@ -39,6 +39,8 @@ export default function QueuesView({ tab }: { tab: Tab }) {
     return <ErrorView connId={tab.connId} error={st.queuesError} onRetry={() => void loadQueues(tab.connId)} hint="You can still browse a queue by name from the search (Ctrl K)." />;
   }
   const loading = st?.state === "connecting" || (st?.queuesLoading && !st.queues);
+  const probe = st?.queuesSource === "probe";
+  const hidden = st?.queuesHidden ?? [];
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -48,7 +50,13 @@ export default function QueuesView({ tab }: { tab: Tab }) {
           <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
             {st?.info?.qmgr ?? conn.qmgr} · {rows.length} shown{hideSys && sysCount ? ` · ${sysCount} SYSTEM.* hidden` : ""}{st?.queuesAt ? ` · refreshed ${clock(st.queuesAt)}` : ""}
           </div>
+          {probe && (
+            <div style={{ fontSize: 12, color: "var(--faint)", marginTop: 4 }}>
+              This user may not list queues (no access to SYSTEM.ADMIN.COMMAND.QUEUE), so only queues added by name are shown, with what you can do on each.
+            </div>
+          )}
         </div>
+        {probe && st?.state === "connected" && <AddQueue connId={tab.connId} />}
         <button className="btn" onClick={() => void loadQueues(tab.connId)} disabled={st?.state !== "connected"}>
           {st?.queuesLoading ? <Spinner /> : <Icon name="ph-arrows-clockwise" />}Refresh
         </button>
@@ -75,24 +83,83 @@ export default function QueuesView({ tab }: { tab: Tab }) {
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         {loading && <div style={{ padding: 20, display: "flex", gap: 8, alignItems: "center", color: "var(--muted)" }}><Spinner />Loading queues…</div>}
-        {!loading && rows.length === 0 && <Empty icon="ph-tray" title="No queues match">Change the filter or show SYSTEM.* queues.</Empty>}
-        {rows.map((q) => <QueueRow key={q.name} q={q} onOpen={() => openBrowse(tab.connId, q.name)} />)}
+        {!loading && rows.length === 0 && (probe && all.length === 0
+          ? <Empty icon="ph-list-plus" title="Add the queues you work with">Type a queue name above. It is checked for browse, put and get access and kept for this connection.</Empty>
+          : <Empty icon="ph-tray" title="No queues match">Change the filter or show SYSTEM.* queues.</Empty>)}
+        {rows.map((q) => (
+          <QueueRow
+            key={q.name}
+            q={q}
+            onOpen={() => openBrowse(tab.connId, q.name)}
+            onPut={() => setOverlay({ kind: "put", connId: tab.connId, queue: q.name })}
+            onRemove={probe ? () => void removeQueue(tab.connId, q.name) : undefined}
+          />
+        ))}
+        {probe && hidden.length > 0 && (
+          <div style={{ padding: "14px 20px", display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ fontSize: 11.5, color: "var(--faint)" }}>Saved queues you cannot use</div>
+            {hidden.map((q) => (
+              <div key={q.name} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+                <span className="mono" style={{ color: "var(--muted)" }}>{q.name}</span>
+                <span style={{ fontSize: 11.5, color: "var(--faint)" }}>{q.error === "MQRC_NOT_AUTHORIZED" ? "no access" : "not found"}</span>
+                <button className="btn ghost xs" onClick={() => void removeQueue(tab.connId, q.name)}>Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function QueueRow({ q, onOpen }: { q: QueueInfo; onOpen: () => void }) {
+const RIGHTS = [["browse", "browse"], ["put", "put"], ["get", "get"]] as const;
+
+function AddQueue({ connId }: { connId: string }) {
+  const addQueue = useApp((s) => s.addQueue);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<MqError | null>(null);
+  const submit = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    const err = await addQueue(connId, name);
+    setBusy(false);
+    setError(err);
+    if (!err) setName("");
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+      <form style={{ display: "flex", gap: 6 }} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+        <div className="input on-panel" style={{ width: 240, padding: "0 9px", fontSize: 12 }}>
+          <input value={name} onChange={(e) => { setName(e.target.value); setError(null); }} placeholder="Queue name, e.g. PAYMENTS.IN" spellCheck={false} />
+        </div>
+        <button className="btn" type="submit" disabled={!name.trim() || busy}>{busy ? <Spinner /> : <Icon name="ph-plus" />}Add queue</button>
+      </form>
+      {error && <span style={{ fontSize: 11.5, color: "var(--err)" }}>{error.message}</span>}
+    </div>
+  );
+}
+
+function QueueRow({ q, onOpen, onPut, onRemove }: { q: QueueInfo; onOpen: () => void; onPut: () => void; onRemove?: () => void }) {
   const has = q.depth != null && !!q.maxDepth;
   const pct = has ? Math.round((q.depth! / q.maxDepth!) * 100) : 0;
   const col = pct >= 85 ? "var(--err)" : pct >= 70 ? "var(--warn)" : "var(--accent)";
   const nt = note(q);
-  const browsable = q.type === "Local" || q.type === "Alias";
+  // Probed queues say what is allowed; a PCF list does not, so go by the queue type.
+  const browsable = q.access ? q.access.browse : q.type === "Local" || q.type === "Alias";
+  const putOnly = !!q.access && !q.access.browse && q.access.put;
   return (
     <div className="q-grid hoverable" style={{ height: 36, borderBottom: "1px solid var(--line-soft)", fontSize: 12.5 }} onDoubleClick={() => browsable && onOpen()}>
       <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
         <Icon name={ICON[q.type] ?? "ph-tray"} size={15} color="var(--faint)" />
         <span className="mono" style={{ fontSize: 12 }}>{q.name}</span>
+        {q.access && (
+          <span style={{ display: "flex", gap: 4 }}>
+            {RIGHTS.filter(([k]) => q.access![k]).map(([k, label]) => (
+              <span key={k} style={{ fontSize: 10.5, padding: "1px 6px", borderRadius: 3, border: "1px solid var(--line)", color: "var(--muted)" }}>{label}</span>
+            ))}
+          </span>
+        )}
         {nt && <span className="ellipsis" style={{ fontSize: 11.5, color: nt.color }}>{nt.text}</span>}
       </span>
       <span><span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 3, background: "var(--raised)", border: "1px solid var(--line)", color: "var(--muted)" }}>{q.type}</span></span>
@@ -112,8 +179,10 @@ function QueueRow({ q, onOpen }: { q: QueueInfo; onOpen: () => void }) {
       <span className="mono" style={{ textAlign: "right", fontSize: 12, color: "var(--muted)" }}>{q.maxDepth == null ? "—" : n(q.maxDepth)}</span>
       <span className="mono" style={{ textAlign: "right", fontSize: 12, color: q.ipprocs === 0 && (q.depth ?? 0) > 0 ? "var(--err)" : "var(--text)" }}>{q.ipprocs ?? "—"}</span>
       <span className="mono" style={{ textAlign: "right", fontSize: 12 }}>{q.opprocs ?? "—"}</span>
-      <span style={{ justifySelf: "end" }}>
+      <span style={{ justifySelf: "end", display: "flex", gap: 4 }}>
         {browsable && <button className="btn outline xs" onClick={onOpen}><Icon name="ph-eye" size={13} />Browse</button>}
+        {putOnly && <button className="btn outline xs" onClick={onPut}><Icon name="ph-paper-plane-tilt" size={13} />Put</button>}
+        {onRemove && <button className="icon-btn sm" style={{ width: 24, height: 24, fontSize: 13 }} title="Remove from this list" onClick={onRemove}><Icon name="ph-x" /></button>}
       </span>
     </div>
   );

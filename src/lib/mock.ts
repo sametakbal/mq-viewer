@@ -1,11 +1,12 @@
 // In-browser stand-in for the Tauri commands, used only when the UI runs under plain `vite`
 // (no Tauri webview). It lets the screens be previewed and styled without a queue manager.
-import type { BrowseResult, Connection, Message, QueueInfo } from "./types";
+import type { BrowseResult, Connection, Message, QueueAccess, QueueInfo, QueueList } from "./types";
 
 const docs: Record<string, unknown> = {};
 const keyring: Record<string, string> = {};
 
-const qmId = (n: number) => "414D5120504159" + "2E50524420202020" + (0x6a1f3c6502a41e20 + n * 7).toString(16).toUpperCase().slice(-18).padStart(18, "0");
+// BigInt: the base is past 2^53, where plain numbers round every n to the same id.
+const qmId = (n: number) => "414D5120504159" + "2E50524420202020" + (0x6a1f3c6502a41e20n + BigInt(n) * 7n).toString(16).toUpperCase().slice(-18).padStart(18, "0");
 
 const queues: Record<string, Message[]> = {};
 const queueInfo: QueueInfo[] = [
@@ -16,13 +17,33 @@ const queueInfo: QueueInfo[] = [
   q("NOTIFY.EMAIL", 312, 5000, 1, 1),
   q("PAYMENTS.DLQ", 87, 10000, 0, 0),
   q("PAYMENTS.OUT", 0, 5000, 2, 3),
-  { name: "PAYMENTS.API", type: "Alias", depth: null, maxDepth: null, ipprocs: null, opprocs: null, target: "PAYMENTS.IN", description: null, getInhibited: false, putInhibited: false },
-  { name: "CLEARING.OUT", type: "Remote", depth: null, maxDepth: null, ipprocs: null, opprocs: null, target: "CLEARING.IN @ CLR.PRD.QM1", description: null, getInhibited: false, putInhibited: false },
+  { name: "PAYMENTS.API", type: "Alias", depth: null, maxDepth: null, ipprocs: null, opprocs: null, target: "PAYMENTS.IN", description: null, getInhibited: false, putInhibited: false, access: null, error: null },
+  { name: "CLEARING.OUT", type: "Remote", depth: null, maxDepth: null, ipprocs: null, opprocs: null, target: "CLEARING.IN @ CLR.PRD.QM1", description: null, getInhibited: false, putInhibited: false, access: null, error: null },
   q("SYSTEM.DEAD.LETTER.QUEUE", 0, 5000, 0, 0),
 ];
 
+/** "local-docker" has no PCF access: its queues are probed, with these rights (others: none). */
+const NO_PCF = "c-local";
+const probeAccess: Record<string, QueueAccess> = {
+  "PAYMENTS.IN": { inquire: true, browse: true, put: true, get: true },
+  "AUDIT.LOG": { inquire: true, browse: true, put: false, get: false },
+  "NOTIFY.EMAIL": { inquire: false, browse: false, put: true, get: false },
+};
+
+function probe(name: string): QueueInfo {
+  const info = queueInfo.find((x) => x.name === name);
+  const none = { inquire: false, browse: false, put: false, get: false };
+  if (!info) return { ...q(name, 0, 0, 0, 0), type: "Unknown", depth: null, maxDepth: null, ipprocs: null, opprocs: null, access: none, error: "MQRC_UNKNOWN_OBJECT_NAME" };
+  const access = probeAccess[name] ?? none;
+  if (!Object.values(access).some(Boolean)) return { ...info, access, error: "MQRC_NOT_AUTHORIZED" };
+  const depth = queues[name]?.length ?? info.depth;
+  return access.inquire
+    ? { ...info, depth, access }
+    : { ...info, type: "Unknown", depth: null, maxDepth: null, ipprocs: null, opprocs: null, description: null, access };
+}
+
 function q(name: string, depth: number, maxDepth: number, ipprocs: number, opprocs: number, description: string | null = null): QueueInfo {
-  return { name, type: "Local", depth, maxDepth, ipprocs, opprocs, target: null, description, getInhibited: false, putInhibited: false };
+  return { name, type: "Local", depth, maxDepth, ipprocs, opprocs, target: null, description, getInhibited: false, putInhibited: false, access: null, error: null };
 }
 
 function utf8b64(s: string) {
@@ -70,9 +91,10 @@ function seed() {
     return makeMessage(i, JSON.stringify({ paymentId: "PMT-20261004-" + String(418 + i * 3).padStart(6, "0"), type: i % 3 ? "SEPA_CREDIT_TRANSFER" : "SEPA_INSTANT", amount: { value: [1250, 89.9, 15000, 342.17][i % 4], currency: "EUR" }, debtor: { name: d[0], iban: d[1] }, creditor: { name: c[0], iban: c[1] }, channel: i % 2 ? "API" : "BATCH", retry: i === 9 }), "json");
   });
   queues["PAYMENTS.OUT"] = [];
+  queues["AUDIT.LOG"] = Array.from({ length: 6 }, (_, i) => makeMessage(200 + i, `AUDIT|user=svc_payapi|action=LOGIN|seq=${i}`, "text"));
   const conns: Connection[] = [
     conn("c-dev", "orders-dev", "DEV", "DEV", false),
-    conn("c-local", "local-docker", "DEV", "DEV", false),
+    { ...conn("c-local", "local-docker", "DEV", "DEV", false), channel: "DEV.APP.SVRCONN", queues: ["PAYMENTS.IN", "AUDIT.LOG", "NOTIFY.EMAIL", "ORDERS.EVENTS"] },
     conn("c-test", "payments-test", "TEST", "TEST", true),
     conn("c-prod", "payments-prod-01", "PROD", "PROD", true),
   ];
@@ -107,16 +129,26 @@ export async function mockBackend(cmd: string, a: Record<string, unknown>): Prom
 
 async function mqCall(method: string, p: Record<string, unknown>): Promise<unknown> {
   const fail = (code: number, name: string, message: string) => Promise.reject({ code, name, cc: 2, message });
+  const need: Partial<Record<string, keyof QueueAccess>> = { browse: "browse", detail: "browse", put: "put", delete: "get", purge: "get" };
+  const right = need[method];
+  if (p.connId === NO_PCF && right && !probeAccess[p.queue as string]?.[right]) {
+    return fail(2035, "MQRC_NOT_AUTHORIZED", "MQJE001: Completion Code '2', Reason '2035'.");
+  }
   switch (method) {
     case "test":
     case "connect": {
       await wait(500);
       const c = p.conn as { id: string; qmgr: string };
       if (c.id === "c-test") return fail(2538, "MQRC_HOST_NOT_AVAILABLE", "MQJE001: Completion Code '2', Reason '2538'.");
-      return { qmgr: c.qmgr, version: "9.4.0.5", cmdLevel: 940, platform: "MQPL_UNIX", elapsedMs: 184, tlsProtocol: "TLSv1.3", tlsCipher: "TLS_AES_256_GCM_SHA384", pcf: true };
+      return { qmgr: c.qmgr, version: "9.4.0.5", cmdLevel: 940, platform: "MQPL_UNIX", elapsedMs: 184, tlsProtocol: "TLSv1.3", tlsCipher: "TLS_AES_256_GCM_SHA384", pcf: c.id !== NO_PCF };
     }
     case "disconnect": return { ok: true };
-    case "listQueues": return queueInfo.map((x) => (queues[x.name] ? { ...x, depth: queues[x.name].length } : x));
+    case "listQueues": {
+      if (p.connId === NO_PCF) {
+        return { source: "probe", queues: [...new Set(p.known as string[])].map(probe) } satisfies QueueList;
+      }
+      return { source: "pcf", queues: queueInfo.map((x) => (queues[x.name] ? { ...x, depth: queues[x.name].length } : x)) } satisfies QueueList;
+    }
     case "browse": {
       const msgs = queues[p.queue as string];
       if (!msgs) return fail(2085, "MQRC_UNKNOWN_OBJECT_NAME", "MQJE001: Completion Code '2', Reason '2085'.");

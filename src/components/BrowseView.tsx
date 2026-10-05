@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { connOf, emptyMqmd, useApp, type BrowseState, type PutDraft, type Tab } from "../state";
+import { connOf, emptyMqmd, queueAccess, useApp, type BrowseState, type PutDraft, type Tab } from "../state";
 import { bytes, clock, copyText, correlShow, dateOf, idTail, isZeroId, matcher, n, timeOf } from "../lib/format";
 import { exportMessages } from "../lib/transfer";
 import { withControlPictures } from "../lib/control";
@@ -35,6 +35,9 @@ export function resendDraft(m: Message, ccsid: number): Partial<PutDraft> {
   };
 }
 
+export const NO_PUT = "You have no put authority on this queue";
+export const NO_GET = "You have no get authority on this queue";
+
 const GRID = "34px 46px 170px 112px 112px 62px 62px 34px 38px minmax(0,1fr)";
 
 export default function BrowseView({ tab }: { tab: Tab }) {
@@ -44,6 +47,9 @@ export default function BrowseView({ tab }: { tab: Tab }) {
   const interval = useApp((s) => s.settings.refreshInterval);
   const defaultCcsid = useApp((s) => s.settings.defaultCcsid);
   const showCtl = useApp((s) => s.settings.showControlChars);
+  const access = useApp((s) => queueAccess(s, tab.connId, tab.queue ?? ""));
+  const canPut = access?.put ?? true;
+  const canGet = access?.get ?? true;
   const { patchBrowse, refreshBrowse, setOverlay } = useApp.getState();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -159,15 +165,15 @@ export default function BrowseView({ tab }: { tab: Tab }) {
         <div style={{ display: "flex", gap: 2, opacity: nChecked ? 1 : 0.4, pointerEvents: nChecked ? "auto" : "none" }}>
           <button className="icon-btn" title="Copy MsgIds" onClick={() => { void copyText(checkedIds.join("\n")); useApp.getState().showToast({ tone: "ok", title: `Copied ${nChecked} MsgId${nChecked === 1 ? "" : "s"}` }); }}><Icon name="ph-copy" /></button>
           <button className="icon-btn" title="Export selected" onClick={() => void exportMessages(queue, checkedMsgs)}><Icon name="ph-export" /></button>
-          <button className="btn ghost" style={{ color: "var(--text)", fontWeight: 400, fontSize: 12, padding: "0 9px" }} onClick={() => checkedMsgs[0] && setOverlay({ kind: "put", connId: conn.id, queue, draft: resendDraft(checkedMsgs[0], defaultCcsid) })}>
+          <button className="btn ghost" style={{ color: "var(--text)", fontWeight: 400, fontSize: 12, padding: "0 9px" }} disabled={!canPut} title={canPut ? undefined : NO_PUT} onClick={() => checkedMsgs[0] && setOverlay({ kind: "put", connId: conn.id, queue, draft: resendDraft(checkedMsgs[0], defaultCcsid) })}>
             <Icon name="ph-repeat" color="var(--muted)" />Copy &amp; resend
           </button>
-          <button className="btn danger-ghost" style={{ fontWeight: 400, fontSize: 12, padding: "0 9px" }} onClick={() => setOverlay({ kind: "delete", connId: conn.id, queue, msgIds: checkedIds })}>
+          <button className="btn danger-ghost" style={{ fontWeight: 400, fontSize: 12, padding: "0 9px" }} disabled={!canGet} title={canGet ? undefined : NO_GET} onClick={() => setOverlay({ kind: "delete", connId: conn.id, queue, msgIds: checkedIds })}>
             <Icon name="ph-trash" />Delete
           </button>
         </div>
         <div className="vsep" />
-        <button className="btn danger" style={{ fontWeight: 400, fontSize: 12, padding: "0 10px" }} onClick={() => setOverlay({ kind: "purge", connId: conn.id, queue })} disabled={b.depth === 0}>
+        <button className="btn danger" style={{ fontWeight: 400, fontSize: 12, padding: "0 10px" }} onClick={() => setOverlay({ kind: "purge", connId: conn.id, queue })} disabled={b.depth === 0 || !canGet} title={canGet ? undefined : NO_GET}>
           <Icon name="ph-broom" />Purge
         </button>
       </div>
@@ -195,7 +201,7 @@ export default function BrowseView({ tab }: { tab: Tab }) {
             title={`${queue} is empty`}
             actions={
               <>
-                <button className="btn primary" onClick={() => setOverlay({ kind: "put", connId: conn.id, queue })}><Icon name="ph-paper-plane-tilt" />Put message</button>
+                <button className="btn primary" disabled={!canPut} title={canPut ? undefined : NO_PUT} onClick={() => setOverlay({ kind: "put", connId: conn.id, queue })}><Icon name="ph-paper-plane-tilt" />Put message</button>
                 <button className="btn" onClick={() => void refreshBrowse(tab.id, "reset")}><Icon name="ph-arrows-clockwise" />Refresh now</button>
               </>
             }

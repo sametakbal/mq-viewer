@@ -12,7 +12,8 @@ const TREE_QUEUES = 5;
 /** Most interesting queues first: deepest local queues, SYSTEM.* left out. */
 function topQueues(queues: QueueInfo[]) {
   return queues
-    .filter((q) => q.type === "Local" && !q.name.startsWith("SYSTEM."))
+    // Probed queues (no PCF) are listed whatever their type: the user added them by name.
+    .filter((q) => q.access || (q.type === "Local" && !q.name.startsWith("SYSTEM.")))
     .sort((a, b) => (b.depth ?? 0) - (a.depth ?? 0) || a.name.localeCompare(b.name));
 }
 
@@ -164,12 +165,15 @@ function ConnectionNode({ conn }: { conn: Connection }) {
           {st?.queuesError && (
             <div style={{ padding: "2px 12px 4px 74px", fontSize: 11, color: "var(--faint)" }}>Queue list unavailable ({short(st.queuesError)})</div>
           )}
+          {st?.queuesSource === "probe" && queues.length === 0 && (
+            <div onClick={() => openQueues(conn.id)} style={{ padding: "2px 12px 4px 74px", fontSize: 11, color: "var(--faint)", cursor: "pointer" }}>Add queues by name…</div>
+          )}
           {queues.slice(0, TREE_QUEUES).map((q) => {
             const sel = tab?.kind === "browse" && tab.connId === conn.id && tab.queue === q.name;
             return (
               <div
                 key={q.name}
-                onClick={() => openBrowse(conn.id, q.name)}
+                onClick={() => (q.access && !q.access.browse ? setOverlay({ kind: "put", connId: conn.id, queue: q.name }) : openBrowse(conn.id, q.name))}
                 className="hoverable"
                 style={{ height: 25, display: "flex", alignItems: "center", gap: 7, padding: "0 12px 0 74px", cursor: "pointer", background: sel ? "var(--sel)" : "transparent", color: sel ? "var(--accent)" : "var(--text)" }}
               >

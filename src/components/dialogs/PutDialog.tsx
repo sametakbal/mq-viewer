@@ -63,7 +63,7 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
     if (t.startsWith("<")) return tokenizeXmlText(d.body);
     return d.body.split("\n").map((l) => [{ t: l, c: "var(--text)" }]);
   }, [d.body]);
-  const queues = (st?.queues ?? []).filter((q) => !q.name.startsWith("SYSTEM.") && q.type !== "Model");
+  const queues = (st?.queues ?? []).filter((q) => (q.access ? q.access.put : !q.name.startsWith("SYSTEM.") && q.type !== "Model"));
 
   if (!conn) return null;
 

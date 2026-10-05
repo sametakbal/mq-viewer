@@ -1,6 +1,6 @@
 import type {
   BrowseResult, Connection, DeleteResult, Message, MqError, PurgeResult, PutMqmd, PutProperty, PutResult,
-  QmgrInfo, QueueInfo,
+  QmgrInfo, QueueList,
 } from "./types";
 
 /** True inside the Tauri webview; plain `vite` in a browser falls back to the mock backend. */
@@ -55,7 +55,7 @@ export const api = {
   test: (c: Connection, s?: ConnSecrets) => mq<QmgrInfo>("test", { conn: wireConn(c, s) }),
   connect: (c: Connection, s?: ConnSecrets) => mq<QmgrInfo>("connect", { conn: wireConn(c, s) }),
   disconnect: (connId: string) => mq<{ ok: boolean }>("disconnect", { connId }),
-  listQueues: (connId: string) => mq<QueueInfo[]>("listQueues", { connId }),
+  listQueues: (connId: string, known: string[]) => mq<QueueList>("listQueues", { connId, known }),
   browse: (connId: string, queue: string, offset: number, limit: number) =>
     mq<BrowseResult>("browse", { connId, queue, offset, limit }),
   detail: (connId: string, queue: string, msgId: string) => mq<Message>("detail", { connId, queue, msgId }),

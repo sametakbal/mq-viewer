@@ -1,4 +1,4 @@
-import { activeTabOf, connOf, useApp } from "../state";
+import { activeTabOf, connOf, queueAccess, useApp } from "../state";
 import { EnvBadge, Icon, StatusDot } from "./ui";
 
 const VERSION = "2.0.0";
@@ -11,6 +11,7 @@ export default function TopBar() {
   const refreshBrowse = useApp((s) => s.refreshBrowse);
   const loadQueues = useApp((s) => s.loadQueues);
   const connect = useApp((s) => s.connect);
+  const tabAccess = useApp((s) => (conn && tab?.queue ? queueAccess(s, conn.id, tab.queue) : null));
 
   const refresh = () => {
     if (!tab) return;
@@ -20,7 +21,10 @@ export default function TopBar() {
   };
 
   const canPut = !!conn && status?.state === "connected";
-  const putQueue = tab?.queue ?? conn?.defaultQueue ?? status?.queues?.find((q) => q.type === "Local" && !q.name.startsWith("SYSTEM."))?.name ?? "";
+  // Not the open queue when this user may not put there (probed, browse-only queues).
+  const tabQueue = tab?.queue && (tabAccess?.put ?? true) ? tab.queue : undefined;
+  const putQueue = tabQueue ?? conn?.defaultQueue
+    ?? status?.queues?.find((q) => (q.access ? q.access.put : q.type === "Local" && !q.name.startsWith("SYSTEM.")))?.name ?? "";
 
   return (
     <div style={{ height: 48, flex: "none", display: "flex", alignItems: "center", gap: 10, padding: "0 12px", background: "var(--panel)", borderBottom: "1px solid var(--line)" }}>

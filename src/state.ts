@@ -2,7 +2,8 @@ import { create } from "zustand";
 import { api, asMqError, secretKey, secrets, store, type ConnSecrets } from "./lib/rpc";
 import { uid } from "./lib/format";
 import type {
-  BrowseResult, Connection, Message, MqError, PutMqmd, PutProperty, QmgrInfo, QueueInfo, Settings, Template,
+  BrowseResult, Connection, Message, MqError, PutMqmd, PutProperty, QmgrInfo, QueueAccess, QueueInfo, QueueList, Settings,
+  Template,
 } from "./lib/types";
 
 export type ConnState = "disconnected" | "connecting" | "connected" | "error";
@@ -13,7 +14,12 @@ export interface ConnStatus {
   error?: MqError;
   attempt: number;
   lastAttempt?: Date;
+  /** Queues the user can work with (probed queues without any access are left out). */
   queues?: QueueInfo[];
+  /** "probe": no PCF access, `queues` are only the connection's known queues. */
+  queuesSource?: QueueList["source"];
+  /** Known queues that could not be used: not found or not authorised. */
+  queuesHidden?: QueueInfo[];
   queuesError?: MqError;
   queuesLoading?: boolean;
   queuesAt?: Date;
@@ -128,6 +134,9 @@ interface AppState {
   connect: (id: string) => Promise<boolean>;
   disconnect: (id: string) => Promise<void>;
   loadQueues: (id: string) => Promise<void>;
+  /** Checks a queue by name and, when the user can use it, remembers it for the connection. */
+  addQueue: (connId: string, queue: string) => Promise<MqError | null>;
+  removeQueue: (connId: string, queue: string) => Promise<void>;
 
   openQueues: (connId: string) => void;
   openBrowse: (connId: string, queue: string) => void;
@@ -269,18 +278,58 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async disconnect(id) {
-      setStatus(id, { state: "disconnected", info: undefined, error: undefined, queues: undefined, attempt: 0 });
+      setStatus(id, { state: "disconnected", info: undefined, error: undefined, queues: undefined, queuesHidden: undefined, queuesSource: undefined, attempt: 0 });
       await api.disconnect(id).catch(() => undefined);
     },
 
     async loadQueues(id) {
+      const c = get().connections.find((x) => x.id === id);
       setStatus(id, { queuesLoading: true });
       try {
-        const queues = await api.listQueues(id);
-        setStatus(id, { queues, queuesError: undefined, queuesLoading: false, queuesAt: new Date() });
+        const list = await api.listQueues(id, c ? knownQueues(c) : []);
+        setStatus(id, {
+          queues: list.queues.filter((q) => !q.error), queuesHidden: list.queues.filter((q) => q.error),
+          queuesSource: list.source, queuesError: undefined, queuesLoading: false, queuesAt: new Date(),
+        });
       } catch (e) {
         setStatus(id, { queuesError: asMqError(e), queuesLoading: false, queuesAt: new Date() });
       }
+    },
+
+    async addQueue(connId, name) {
+      const queue = name.trim();
+      if (!queue) return null;
+      let probed: QueueInfo | undefined;
+      try {
+        probed = (await api.listQueues(connId, [queue])).queues.find((q) => q.name === queue);
+      } catch (e) {
+        return asMqError(e);
+      }
+      if (!probed || probed.error) {
+        const name = probed?.error ?? "MQRC_UNKNOWN_OBJECT_NAME";
+        return {
+          code: name === "MQRC_NOT_AUTHORIZED" ? 2035 : 2085, name, cc: 2,
+          message: name === "MQRC_NOT_AUTHORIZED" ? `You have no access to ${queue}.` : `${queue} does not exist on this queue manager.`,
+        };
+      }
+      await rememberQueue(connId, queue);
+      const st = get().status[connId];
+      setStatus(connId, {
+        queues: [...(st?.queues ?? []).filter((q) => q.name !== queue), probed],
+        queuesHidden: st?.queuesHidden?.filter((q) => q.name !== queue),
+      });
+      return null;
+    },
+
+    async removeQueue(connId, queue) {
+      const connections = get().connections.map((c) =>
+        c.id !== connId ? c : {
+          ...c, queues: (c.queues ?? []).filter((q) => q !== queue), defaultQueue: c.defaultQueue === queue ? undefined : c.defaultQueue,
+        });
+      set({ connections });
+      await persistConnections(connections);
+      const st = get().status[connId];
+      setStatus(connId, { queues: st?.queues?.filter((q) => q.name !== queue), queuesHidden: st?.queuesHidden?.filter((q) => q.name !== queue) });
     },
 
     openQueues(connId) {
@@ -360,6 +409,13 @@ export const useApp = create<AppState>((set, get) => {
         return;
       }
 
+      // Without PCF the list only holds known queues: remember one that was opened by name.
+      const st = get().status[tab.connId];
+      if (st?.queuesSource === "probe" && !st.queues?.some((q) => q.name === tab.queue)) {
+        await rememberQueue(tab.connId, tab.queue);
+        void get().loadQueues(tab.connId);
+      }
+
       // Keep the sidebar/queue list depth in step with what browsing just saw.
       const queues = get().status[tab.connId]?.queues;
       if (queues && res.depth >= 0 && queues.some((q) => q.name === tab.queue && q.depth !== res.depth)) {
@@ -413,7 +469,25 @@ export const useApp = create<AppState>((set, get) => {
       set({ toast: null });
     },
   };
+
+  async function rememberQueue(connId: string, queue: string) {
+    const c = get().connections.find((x) => x.id === connId);
+    if (!c || knownQueues(c).includes(queue)) return;
+    const connections = get().connections.map((x) => (x.id === connId ? { ...x, queues: [...(x.queues ?? []), queue] } : x));
+    set({ connections });
+    await persistConnections(connections);
+  }
 });
+
+/** Queues checked one by one when the user may not list queues through PCF. */
+export function knownQueues(c: Connection): string[] {
+  return [...new Set([c.defaultQueue, ...(c.queues ?? [])].filter((q): q is string => !!q))];
+}
+
+/** What the user may do on a queue; null when unknown (PCF list), in which case nothing is held back. */
+export function queueAccess(s: AppState, connId: string, queue: string): QueueAccess | null {
+  return s.status[connId]?.queues?.find((q) => q.name === queue)?.access ?? null;
+}
 
 async function forgetSecrets(id: string) {
   await Promise.all([
