@@ -114,11 +114,11 @@ impl Sidecar {
             .current_dir(&l.work_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(open_stderr_log(&l.work_dir))
             .kill_on_drop(true);
         for name in JVM_ENV_OPTIONS {
             cmd.env_remove(name);
         }
+        cmd.stderr(open_stderr_log(&l.work_dir, &format!("{:?}", cmd.as_std())));
         #[cfg(windows)]
         {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -183,7 +183,8 @@ impl Sidecar {
 }
 
 /// Appends to the stderr log, starting it over once it has grown past `STDERR_LOG_MAX`.
-fn open_stderr_log(dir: &Path) -> Stdio {
+/// The command line goes in too, so a launch that fails on one machine only can be replayed by hand.
+fn open_stderr_log(dir: &Path, command: &str) -> Stdio {
     let path = dir.join(STDERR_LOG);
     let too_big = std::fs::metadata(&path).is_ok_and(|m| m.len() > STDERR_LOG_MAX);
     let mut opts = OpenOptions::new();
@@ -196,6 +197,7 @@ fn open_stderr_log(dir: &Path) -> Stdio {
         Ok(mut f) => {
             let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
             let _ = writeln!(f, "{START_MARKER} (unix time {secs}) ---");
+            let _ = writeln!(f, "command: {command}");
             Stdio::from(f)
         }
         Err(_) => Stdio::null(),
@@ -251,13 +253,13 @@ mod tests {
         let path = dir.join(STDERR_LOG);
         std::fs::write(&path, "previous crash\n").unwrap();
 
-        drop(open_stderr_log(&dir));
+        drop(open_stderr_log(&dir, "java -jar test.jar"));
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("previous crash\n"));
         assert!(text.contains("--- sidecar starting"));
 
         std::fs::write(&path, vec![b'x'; STDERR_LOG_MAX as usize + 1]).unwrap();
-        drop(open_stderr_log(&dir));
+        drop(open_stderr_log(&dir, "java -jar test.jar"));
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("--- sidecar starting"));
 

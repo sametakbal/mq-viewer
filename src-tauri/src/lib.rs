@@ -138,7 +138,10 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let launch = resolve_launch(app.path().resource_dir().ok());
+            // Tauri canonicalizes the exe path, which on Windows yields a `\\?\` verbatim path;
+            // keep the plain form the JVM and its class path handling expect.
+            let resource_dir = app.path().resource_dir().ok().map(|d| dunce::simplified(&d).to_path_buf());
+            let launch = resolve_launch(resource_dir);
             app.manage(Sidecar::new(launch));
             Ok(())
         })
