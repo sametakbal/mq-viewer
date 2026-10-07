@@ -4,7 +4,7 @@ import { n } from "../lib/format";
 import { short } from "../lib/mqrc";
 import { exportConnectionsToFile, importConnectionsFromFile } from "../lib/transfer";
 import type { Connection, QueueInfo } from "../lib/types";
-import { Icon, StatusDot } from "./ui";
+import { Icon, press, StatusDot } from "./ui";
 import Drafts from "./Drafts";
 
 const TREE_QUEUES = 5;
@@ -68,7 +68,7 @@ export default function Sidebar() {
             <div key={name} style={{ position: "relative", padding: "2px 0 6px" }}>
               {prod && <div style={{ position: "absolute", left: 0, top: 2, bottom: 6, width: 3, background: "var(--prod)" }} />}
               <div
-                onClick={() => setCollapsed((c) => ({ ...c, [name]: open }))}
+                {...press(() => setCollapsed((c) => ({ ...c, [name]: open })))} aria-expanded={open}
                 style={{ height: 26, display: "flex", alignItems: "center", gap: 6, padding: "0 14px 0 12px", fontSize: 11, fontWeight: 600, letterSpacing: ".07em", color: prod ? "var(--err)" : "var(--muted)", cursor: "pointer", userSelect: "none" }}
               >
                 <Icon name={open ? "ph-caret-down" : "ph-caret-right"} size={11} color="var(--faint)" />
@@ -124,7 +124,7 @@ function ConnectionNode({ conn }: { conn: Connection }) {
   return (
     <div>
       <div
-        onClick={onRow}
+        {...press(onRow)}
         onDoubleClick={() => setOverlay({ kind: "connection", connId: conn.id })}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
@@ -135,7 +135,7 @@ function ConnectionNode({ conn }: { conn: Connection }) {
         <StatusDot state={st?.state} />
         <span className="ellipsis" style={{ flex: 1, fontSize: 12.5, color: st?.state && st.state !== "disconnected" ? "var(--text)" : "var(--muted)", fontWeight: active ? 600 : 400 }}>{conn.name}</span>
         {hover ? (
-          <span style={{ display: "flex" }} onClick={(e) => e.stopPropagation()}>
+          <span style={{ display: "flex" }} role="presentation" onClick={(e) => e.stopPropagation()}>
             <button className="icon-btn sm" style={{ width: 22, height: 22, fontSize: 13 }} title="Edit" onClick={() => setOverlay({ kind: "connection", connId: conn.id })}><Icon name="ph-pencil-simple" /></button>
             {connected || st?.state === "error" ? (
               <button className="icon-btn sm" style={{ width: 22, height: 22, fontSize: 13 }} title="Disconnect" onClick={() => void disconnect(conn.id)}><Icon name="ph-plugs" /></button>
@@ -153,7 +153,7 @@ function ConnectionNode({ conn }: { conn: Connection }) {
       {expanded && (
         <>
           <div
-            onClick={() => openQueues(conn.id)}
+            {...press(() => openQueues(conn.id))}
             className="hoverable"
             style={{ height: 26, display: "flex", alignItems: "center", gap: 7, padding: "0 12px 0 42px", cursor: "pointer", background: tab?.kind === "queues" && tab.connId === conn.id ? "var(--sel)" : "transparent" }}
           >
@@ -166,14 +166,14 @@ function ConnectionNode({ conn }: { conn: Connection }) {
             <div style={{ padding: "2px 12px 4px 74px", fontSize: 11, color: "var(--faint)" }}>Queue list unavailable ({short(st.queuesError)})</div>
           )}
           {st?.queuesSource === "probe" && queues.length === 0 && (
-            <div onClick={() => openQueues(conn.id)} style={{ padding: "2px 12px 4px 74px", fontSize: 11, color: "var(--faint)", cursor: "pointer" }}>Add queues by name…</div>
+            <div {...press(() => openQueues(conn.id))} style={{ padding: "2px 12px 4px 74px", fontSize: 11, color: "var(--faint)", cursor: "pointer" }}>Add queues by name…</div>
           )}
           {queues.slice(0, TREE_QUEUES).map((q) => {
             const sel = tab?.kind === "browse" && tab.connId === conn.id && tab.queue === q.name;
             return (
               <div
                 key={q.name}
-                onClick={() => (q.access && !q.access.browse ? setOverlay({ kind: "put", connId: conn.id, queue: q.name }) : openBrowse(conn.id, q.name))}
+                {...press(() => (q.access && !q.access.browse ? setOverlay({ kind: "put", connId: conn.id, queue: q.name }) : openBrowse(conn.id, q.name)))}
                 className="hoverable"
                 style={{ height: 25, display: "flex", alignItems: "center", gap: 7, padding: "0 12px 0 74px", cursor: "pointer", background: sel ? "var(--sel)" : "transparent", color: sel ? "var(--accent)" : "var(--text)" }}
               >
@@ -184,7 +184,7 @@ function ConnectionNode({ conn }: { conn: Connection }) {
             );
           })}
           {queues.length > TREE_QUEUES && (
-            <div onClick={() => openQueues(conn.id)} style={{ height: 24, display: "flex", alignItems: "center", padding: "0 12px 0 94px", fontSize: 11.5, color: "var(--faint)", cursor: "pointer" }}>
+            <div {...press(() => openQueues(conn.id))} style={{ height: 24, display: "flex", alignItems: "center", padding: "0 12px 0 94px", fontSize: 11.5, color: "var(--faint)", cursor: "pointer" }}>
               {queues.length - TREE_QUEUES} more queues…
             </div>
           )}

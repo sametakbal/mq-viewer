@@ -1,5 +1,5 @@
 import { activeTabOf, connOf, queueAccess, useApp } from "../state";
-import { EnvBadge, Icon, StatusDot } from "./ui";
+import { EnvBadge, Icon, press, StatusDot } from "./ui";
 
 const VERSION = "2.0.0";
 
@@ -50,7 +50,7 @@ export default function TopBar() {
       )}
       <div className="spacer" />
       <div
-        onClick={() => setOverlay({ kind: "palette" })}
+        {...press(() => setOverlay({ kind: "palette" }))}
         style={{ width: 320, height: 30, display: "flex", alignItems: "center", gap: 8, padding: "0 10px", background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--faint)", fontSize: 12.5, cursor: "text" }}
       >
         <Icon name="ph-magnifying-glass" size={15} />

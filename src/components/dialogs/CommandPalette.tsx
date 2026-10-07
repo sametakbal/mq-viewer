@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApp } from "../../state";
 import { n } from "../../lib/format";
-import { Icon, StatusDot } from "../ui";
+import { Icon, press, StatusDot } from "../ui";
 import { draftConnId, sendDraft } from "../../lib/drafts";
 
 interface Item {
@@ -98,7 +98,7 @@ export default function CommandPalette() {
           </div>
         )}
         {items.map((it, i) => (
-          <div key={it.key} className={`menu-item${i === sel ? " active" : ""}`} onMouseEnter={() => setIdx(i)} onClick={it.run} style={{ height: 32 }}>
+          <div key={it.key} className={`menu-item${i === sel ? " active" : ""}`} onMouseEnter={() => setIdx(i)} {...press(it.run, "option", false)} aria-selected={i === sel} style={{ height: 32 }}>
             <Icon name={it.icon} size={15} color="var(--muted)" />
             <span className="mono ellipsis" style={{ fontSize: 12.5 }}>{it.label}</span>
             <span className="ellipsis" style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--faint)" }}>{it.meta}</span>

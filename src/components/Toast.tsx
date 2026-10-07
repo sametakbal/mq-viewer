@@ -1,5 +1,5 @@
 import { useApp } from "../state";
-import { Icon } from "./ui";
+import { Icon, press } from "./ui";
 
 export default function Toast() {
   const toast = useApp((s) => s.toast);
@@ -15,12 +15,12 @@ export default function Toast() {
         {toast.actions && (
           <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: 12 }}>
             {toast.actions.map((a) => (
-              <span key={a.label} style={{ color: "var(--accent)", cursor: "pointer" }} onClick={() => { a.run(); close(); }}>{a.label}</span>
+              <span key={a.label} style={{ color: "var(--accent)", cursor: "pointer" }} {...press(() => { a.run(); close(); })}>{a.label}</span>
             ))}
           </div>
         )}
       </div>
-      <i onClick={close} className="ph-light ph-x" style={{ fontSize: 13, color: "var(--faint)", cursor: "pointer" }} />
+      <i {...press(close)} aria-label="Close" className="ph-light ph-x" style={{ fontSize: 13, color: "var(--faint)", cursor: "pointer" }} />
     </div>
   );
 }

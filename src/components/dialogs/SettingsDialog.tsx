@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useApp } from "../../state";
 import { secretKey, secrets, store } from "../../lib/rpc";
 import type { Interval, Theme } from "../../lib/types";
-import { Icon, Segmented, Switch } from "../ui";
+import { Icon, press, Segmented, Switch } from "../ui";
 import { KEYCHAIN } from "./ConnectionDrawer";
 
 const CCSIDS: [number, string][] = [
@@ -60,7 +60,7 @@ export default function SettingsDialog() {
         <Row title="Theme" sub="Applies to all windows">
           <div style={{ display: "flex", gap: 8 }}>
             {themes.map(([k, label, icon, prev]) => (
-              <div key={k} onClick={() => void saveSettings({ theme: k })} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7, padding: 8, borderRadius: 7, border: `1px solid ${settings.theme === k ? "var(--accent)" : "var(--line2)"}`, cursor: "pointer", background: settings.theme === k ? "var(--accent-bg)" : "transparent" }}>
+              <div key={k} {...press(() => void saveSettings({ theme: k }))} aria-pressed={settings.theme === k} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7, padding: 8, borderRadius: 7, border: `1px solid ${settings.theme === k ? "var(--accent)" : "var(--line2)"}`, cursor: "pointer", background: settings.theme === k ? "var(--accent-bg)" : "transparent" }}>
                 <div style={{ height: 44, borderRadius: 4, background: prev, border: "1px solid var(--line)" }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}><Icon name={icon} />{label}</div>
               </div>
@@ -89,7 +89,7 @@ export default function SettingsDialog() {
           </select>
         </Row>
         <Row title="Control characters" sub="CR, LF, TAB, SOH, STX, ETX… in payloads">
-          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, cursor: "pointer" }} onClick={() => void saveSettings({ showControlChars: !settings.showControlChars })}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, cursor: "pointer" }} role="presentation" onClick={() => void saveSettings({ showControlChars: !settings.showControlChars })}>
             <Switch on={settings.showControlChars} onChange={(v) => void saveSettings({ showControlChars: v })} />
             Show as markers
             <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>e.g. A<span style={{ color: "var(--warn)" }}>[SOH]</span>B<span>[CR][LF]</span> · ␍␊ in the list</span>

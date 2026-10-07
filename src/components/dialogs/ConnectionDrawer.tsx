@@ -5,7 +5,7 @@ import { ENV_COLOR, SWATCHES, platformLabel, tlsLabel } from "../../lib/format";
 import { explain } from "../../lib/mqrc";
 import { exportConnectionsToFile, importConnectionsFromFile, pickKeystore } from "../../lib/transfer";
 import type { Connection, Env, MqError, QmgrInfo } from "../../lib/types";
-import { Checkbox, Field, Icon, Spinner, Switch } from "../ui";
+import { Checkbox, Field, Icon, press, Spinner, Switch } from "../ui";
 
 export const KEYCHAIN = /Mac/i.test(navigator.userAgent) ? "macOS Keychain" : /Windows/i.test(navigator.userAgent) ? "Windows Credential Manager" : "the system keyring";
 
@@ -118,7 +118,7 @@ export default function ConnectionDrawer({ connId }: { connId?: string }) {
                 {(["DEV", "TEST", "PROD"] as Env[]).map((k) => (
                   <span
                     key={k}
-                    onClick={() => set({ env: k, folder: c.folder === c.env || !c.folder ? k : c.folder })}
+                    {...press(() => set({ env: k, folder: c.folder === c.env || !c.folder ? k : c.folder }))} aria-pressed={c.env === k}
                     className="mono"
                     style={{ flex: 1, height: 30, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 5, border: `1px solid ${c.env === k ? ENV_COLOR[k] : "var(--line2)"}`, background: c.env === k ? "var(--raised)" : "transparent", color: c.env === k ? "var(--text)" : "var(--muted)", fontSize: 11, fontWeight: 600, letterSpacing: ".06em", cursor: "pointer" }}
                   >
@@ -130,7 +130,7 @@ export default function ConnectionDrawer({ connId }: { connId?: string }) {
             <Field label="Color">
               <div style={{ height: 30, display: "flex", alignItems: "center", gap: 10, paddingLeft: 4 }}>
                 {SWATCHES.map((sw, i) => (
-                  <span key={sw} onClick={() => set({ color: i })} style={{ width: 18, height: 18, borderRadius: "50%", background: sw, boxShadow: i === c.color ? `0 0 0 2px var(--panel), 0 0 0 4px ${sw}` : "none", cursor: "pointer" }} />
+                  <span key={sw} {...press(() => set({ color: i }))} aria-pressed={i === c.color} aria-label={`Colour ${i + 1}`} style={{ width: 18, height: 18, borderRadius: "50%", background: sw, boxShadow: i === c.color ? `0 0 0 2px var(--panel), 0 0 0 4px ${sw}` : "none", cursor: "pointer" }} />
                 ))}
               </div>
             </Field>
@@ -156,13 +156,13 @@ export default function ConnectionDrawer({ connId }: { connId?: string }) {
             <Field label="Password">
               <div className="input mono" style={{ paddingRight: 4 }}>
                 <input type={showPw ? "text" : "password"} value={pw} onChange={(e) => setPw(e.target.value)} placeholder={hasSaved ? "•••••••• (saved)" : ""} autoComplete="new-password" />
-                <span onClick={() => void revealPw()} style={{ width: 24, height: 24, display: "grid", placeItems: "center", color: "var(--muted)", cursor: "pointer", fontSize: 15 }}>
+                <span {...press(() => void revealPw())} aria-label={showPw ? "Hide password" : "Show password"} style={{ width: 24, height: 24, display: "grid", placeItems: "center", color: "var(--muted)", cursor: "pointer", fontSize: 15 }}>
                   <Icon name={showPw ? "ph-eye-slash" : "ph-eye"} />
                 </span>
               </div>
             </Field>
           </div>
-          <div onClick={() => set({ savePassword: !c.savePassword })} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 12.5, cursor: "pointer" }}>
+          <div {...press(() => set({ savePassword: !c.savePassword }), "checkbox")} aria-checked={c.savePassword} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 12.5, cursor: "pointer" }}>
             <Checkbox on={c.savePassword} large />
             Save password in {KEYCHAIN}
             <span style={{ color: "var(--faint)", fontSize: 11.5 }}>— never written to config or exports</span>
@@ -191,7 +191,7 @@ export default function ConnectionDrawer({ connId }: { connId?: string }) {
                   <div className="input mono" style={{ paddingRight: 4 }}>
                     <Icon name="ph-key" color="var(--muted)" />
                     <input value={c.tls.keystore} onChange={(e) => setTls({ keystore: e.target.value })} placeholder=".p12 / .jks (optional)" spellCheck={false} />
-                    <span className="input-btn" onClick={() => void browseFile("keystore")}>Browse…</span>
+                    <span className="input-btn" {...press(() => void browseFile("keystore"))}>Browse…</span>
                   </div>
                 </Field>
                 <Field label="Keystore password">
@@ -203,7 +203,7 @@ export default function ConnectionDrawer({ connId }: { connId?: string }) {
                   <div className="input mono" style={{ paddingRight: 4 }}>
                     <Icon name="ph-certificate" color="var(--muted)" />
                     <input value={c.tls.truststore} onChange={(e) => setTls({ truststore: e.target.value })} placeholder="Java default CAs" spellCheck={false} />
-                    <span className="input-btn" onClick={() => void browseFile("truststore")}>Browse…</span>
+                    <span className="input-btn" {...press(() => void browseFile("truststore"))}>Browse…</span>
                   </div>
                 </Field>
                 <Field label="Truststore password">

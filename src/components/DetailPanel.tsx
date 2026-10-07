@@ -7,7 +7,7 @@ import { exportMessages, savePayload } from "../lib/transfer";
 import { controlSummary, segments } from "../lib/control";
 import type { Message } from "../lib/types";
 import { NO_GET, NO_PUT, resendDraft, visibleMessages } from "./BrowseView";
-import { Icon, Segmented, Spinner } from "./ui";
+import { Icon, press, Segmented, Spinner } from "./ui";
 
 export default function DetailPanel({ tab }: { tab: Tab }) {
   const b = useApp((s) => s.browse[tab.id]);
@@ -96,7 +96,7 @@ export default function DetailPanel({ tab }: { tab: Tab }) {
 
       <div style={{ height: 36, flex: "none", display: "flex", gap: 2, padding: "0 8px", borderBottom: "1px solid var(--line)" }}>
         {([["payload", "Payload", ""], ["mqmd", "MQMD", String(m.mqmd.length)], ["props", "Properties", String(m.props.length)]] as const).map(([k, label, count]) => (
-          <div key={k} onClick={() => patchBrowse(tab.id, { detailTab: k })} style={{ position: "relative", display: "flex", alignItems: "center", gap: 6, padding: "0 10px", cursor: "pointer", color: b.detailTab === k ? "var(--text)" : "var(--muted)", fontSize: 12.5, fontWeight: 500 }}>
+          <div key={k} {...press(() => patchBrowse(tab.id, { detailTab: k }), "tab")} aria-selected={b.detailTab === k} style={{ position: "relative", display: "flex", alignItems: "center", gap: 6, padding: "0 10px", cursor: "pointer", color: b.detailTab === k ? "var(--text)" : "var(--muted)", fontSize: 12.5, fontWeight: 500 }}>
             <span>{label}</span>
             <span className="mono" style={{ fontSize: 10.5, color: "var(--faint)" }}>{count}</span>
             <div style={{ position: "absolute", left: 8, right: 8, bottom: -1, height: 2, background: b.detailTab === k ? "var(--accent)" : "transparent" }} />
@@ -199,7 +199,7 @@ function IdLine({ label, value, note, faint, onCopy }: { label: string; value: s
         {value}
         {note && <span style={{ color: "var(--syn-str)", marginLeft: 8 }}>&quot;{note}&quot;</span>}
       </span>
-      <i className="ph-light ph-copy" title="Copy" onClick={onCopy} style={{ fontSize: 14, color: "var(--muted)", cursor: "pointer", paddingTop: 2 }} />
+      <i className="ph-light ph-copy" title="Copy" {...press(onCopy)} aria-label="Copy" style={{ fontSize: 14, color: "var(--muted)", cursor: "pointer", paddingTop: 2 }} />
     </div>
   );
 }

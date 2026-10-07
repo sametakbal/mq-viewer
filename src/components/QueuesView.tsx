@@ -9,7 +9,7 @@ type TypeFilter = "All" | "Local" | "Alias" | "Remote" | "Model";
 
 function note(q: QueueInfo): { text: string; color: string } | null {
   if (q.type === "Local" && (q.depth ?? 0) > 0 && q.ipprocs === 0) return { text: "no consumers", color: "var(--err)" };
-  if (/DEAD\.LETTER|\.DLQ$/.test(q.name)) return { text: "dead-letter", color: "var(--faint)" };
+  if (/(?:DEAD\.LETTER)|(?:\.DLQ$)/.test(q.name)) return { text: "dead-letter", color: "var(--faint)" };
   if (q.getInhibited) return { text: "get disabled", color: "var(--warn)" };
   if (q.putInhibited) return { text: "put disabled", color: "var(--warn)" };
   return q.description ? { text: q.description, color: "var(--faint)" } : null;
@@ -66,7 +66,7 @@ export default function QueuesView({ tab }: { tab: Tab }) {
           <Icon name="ph-magnifying-glass" size={14} color="var(--faint)" />
           <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by name, e.g. PAYMENTS.*" spellCheck={false} />
         </div>
-        <div onClick={() => setHideSys(!hideSys)} style={{ height: 30, display: "flex", alignItems: "center", gap: 8, padding: "0 10px", border: "1px solid var(--line2)", borderRadius: 5, cursor: "pointer", fontSize: 12 }}>
+        <div role="presentation" onClick={() => setHideSys(!hideSys)} style={{ height: 30, display: "flex", alignItems: "center", gap: 8, padding: "0 10px", border: "1px solid var(--line2)", borderRadius: 5, cursor: "pointer", fontSize: 12 }}>
           <Switch on={hideSys} onChange={setHideSys} />Hide SYSTEM.*
         </div>
         <Segmented<TypeFilter> options={(["All", "Local", "Alias", "Remote", "Model"] as const).map((k) => ({ value: k, label: k }))} value={type} onChange={setType} />

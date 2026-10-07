@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "../state";
 import { draftConnId, sendDraft } from "../lib/drafts";
 import type { Template } from "../lib/types";
-import { Icon, Spinner } from "./ui";
+import { Icon, press, Spinner } from "./ui";
 
 /** Sidebar list of saved sample messages; each one goes to its queue in one click. */
 export default function Drafts() {
@@ -16,7 +16,7 @@ export default function Drafts() {
 
   return (
     <div style={{ flex: "none", maxHeight: "42%", display: "flex", flexDirection: "column", borderTop: "1px solid var(--line)" }}>
-      <div style={{ height: 34, flex: "none", display: "flex", alignItems: "center", gap: 6, padding: "0 8px 0 14px", cursor: "pointer", userSelect: "none" }} onClick={() => setOpen(!open)}>
+      <div style={{ height: 34, flex: "none", display: "flex", alignItems: "center", gap: 6, padding: "0 8px 0 14px", cursor: "pointer", userSelect: "none" }} {...press(() => setOpen(!open))} aria-expanded={open}>
         <Icon name={open ? "ph-caret-down" : "ph-caret-right"} size={11} color="var(--faint)" />
         <span className="caps" style={{ flex: 1 }}>DRAFTS</span>
         <span style={{ fontSize: 11, color: "var(--faint)", marginRight: 4 }}>{drafts.length || ""}</span>
@@ -93,7 +93,7 @@ function DraftRow({ t }: { t: Template }) {
       className="hoverable"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => { setHover(false); setConfirm(null); }}
-      onClick={edit}
+      {...press(edit)}
       title={`${t.name}${t.queue ? ` → ${t.queue}` : ""}${conn ? ` on ${conn.name}` : ""}${t.count && t.count > 1 ? ` · ×${t.count}` : ""}`}
       style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8, padding: "3px 8px 3px 14px", cursor: "pointer" }}
     >
@@ -116,7 +116,7 @@ function DraftRow({ t }: { t: Template }) {
       ) : busy ? (
         <Spinner />
       ) : hover ? (
-        <span style={{ display: "flex" }} onClick={(e) => e.stopPropagation()}>
+        <span style={{ display: "flex" }} role="presentation" onClick={(e) => e.stopPropagation()}>
           <button className="icon-btn sm" style={{ width: 22, height: 22, fontSize: 13 }} title="Delete draft" onClick={() => void remove()}><Icon name="ph-trash" /></button>
           <button className="icon-btn sm" style={{ width: 22, height: 22, fontSize: 13 }} title="Edit in Put message" onClick={edit}><Icon name="ph-pencil-simple" /></button>
           <button

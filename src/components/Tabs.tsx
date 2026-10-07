@@ -1,6 +1,6 @@
 import { useApp } from "../state";
 import { n } from "../lib/format";
-import { Icon } from "./ui";
+import { Icon, press } from "./ui";
 
 export default function Tabs() {
   const tabs = useApp((s) => s.tabs);
@@ -22,7 +22,7 @@ export default function Tabs() {
         return (
           <div
             key={t.id}
-            onClick={() => activate(t.id)}
+            {...press(() => activate(t.id), "tab")} aria-selected={t.id === active}
             onAuxClick={(e) => e.button === 1 && closeTab(t.id)}
             title={conn ? `${conn.name} · ${label}` : label}
             style={{ position: "relative", display: "flex", alignItems: "center", gap: 7, padding: "0 6px 0 14px", borderRight: "1px solid var(--line)", background: on ? "var(--bg)" : "transparent", color: on ? "var(--text)" : "var(--muted)", cursor: "pointer", fontSize: 12.5, flex: "none" }}

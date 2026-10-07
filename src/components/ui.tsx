@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import type { Env } from "../lib/types";
 import type { ConnState } from "../state";
 
@@ -31,8 +31,30 @@ export const StatusDot = ({ state, size = 8 }: { state: ConnState | undefined; s
   );
 };
 
+/**
+ * Props that let a clickable element that is not a <button> be used from the keyboard: it can be reached with
+ * Tab (or, with `inTabOrder` false, only by the arrow-key handling that already exists), and Enter or Space
+ * click it. A mouse click does not leave it focused, so Enter/Space keep going to the page as before.
+ */
+export function press<E extends HTMLElement = HTMLElement>(onClick: (e: MouseEvent<E>) => void, role = "button", inTabOrder = true) {
+  return {
+    role,
+    tabIndex: inTabOrder ? 0 : -1,
+    onClick,
+    onKeyDown: (e: KeyboardEvent<E>) => {
+      if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.currentTarget.click();
+    },
+    onMouseUp: (e: MouseEvent<E>) => {
+      if (document.activeElement === e.currentTarget) e.currentTarget.blur();
+    },
+  };
+}
+
 export const Switch = ({ on, onChange, large }: { on: boolean; onChange: (v: boolean) => void; large?: boolean }) => (
-  <span className={`switch${on ? " on" : ""}${large ? " lg" : ""}`} role="switch" aria-checked={on} onClick={(e) => { e.stopPropagation(); onChange(!on); }} />
+  <span className={`switch${on ? " on" : ""}${large ? " lg" : ""}`} aria-checked={on} {...press((e) => { e.stopPropagation(); onChange(!on); }, "switch")} />
 );
 
 export const Checkbox = ({ on, mixed, large }: { on: boolean; mixed?: boolean; large?: boolean }) => (
@@ -52,7 +74,9 @@ export function Segmented<T extends string | number>({ options, value, onChange,
         <span
           key={String(o.value)}
           className={`${o.value === value ? "on" : ""}${o.disabled ? " disabled" : ""}`}
-          onClick={() => !o.disabled && onChange(o.value)}
+          {...press(() => !o.disabled && onChange(o.value))}
+          aria-pressed={o.value === value}
+          aria-disabled={o.disabled}
         >
           {o.label}
         </span>

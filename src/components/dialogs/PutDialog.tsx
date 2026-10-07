@@ -7,7 +7,7 @@ import { prettyXml, tokenizeJsonText, tokenizeXmlText, type Tok } from "../../li
 import { errorText, FUNCTIONS, hasTemplate, parseTemplate, renderTemplate, templateForFormat, type Parsed } from "../../lib/template";
 import { pickPayloadFile } from "../../lib/transfer";
 import type { PutMqmd, PutProperty } from "../../lib/types";
-import { EnvBadge, Field, Icon, Segmented, Spinner, StatusDot } from "../ui";
+import { EnvBadge, Field, Icon, press, Segmented, Spinner, StatusDot } from "../ui";
 
 const PROP_TYPES = ["String", "Int32", "Int64", "Int16", "Int8", "Boolean", "Float32", "Float64", "Bytes"];
 const FORMATS = ["MQSTR", "MQHRF2", "NONE"];
@@ -215,7 +215,7 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
               <button className="btn sm" onClick={() => setD((x) => ({ ...x, bodyBase64: undefined, fileName: undefined, body: "" }))}>Replace with text</button>
             </div>
           ) : (
-            <div className="mono" style={{ flex: 1, minHeight: 0, overflow: "auto", background: "var(--bg)", border: "1px solid var(--accent)", boxShadow: "0 0 0 3px var(--accent-bg)", borderRadius: 6, padding: "10px 0", fontSize: 12.5, lineHeight: 1.7 }} onClick={() => taRef.current?.focus()}>
+            <div className="mono" style={{ flex: 1, minHeight: 0, overflow: "auto", background: "var(--bg)", border: "1px solid var(--accent)", boxShadow: "0 0 0 3px var(--accent-bg)", borderRadius: 6, padding: "10px 0", fontSize: 12.5, lineHeight: 1.7 }} role="presentation" onClick={() => taRef.current?.focus()}>
               <div style={{ display: "flex", minHeight: "100%" }}>
                 <div style={{ width: 36, flex: "none", textAlign: "right", paddingRight: 14, color: "var(--faint)", userSelect: "none" }}>
                   {lines.map((_, i) => <div key={i} style={{ background: i + 1 === cursor.ln ? "var(--hover)" : undefined }}>{i + 1}</div>)}
@@ -268,7 +268,7 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
                       {PROP_TYPES.map((t) => <option key={t}>{t}</option>)}
                     </select>
                     <input value={p.value} onChange={(e) => setProp(i, { value: e.target.value })} placeholder={p.type === "Bytes" ? "hex" : "value"} spellCheck={false} style={{ height: "100%", padding: "0 10px", border: "none", borderLeft: "1px solid var(--line-soft)", background: "transparent", outline: "none", font: "inherit" }} />
-                    <i className="ph-light ph-x" style={{ color: "var(--faint)", fontSize: 12, cursor: "pointer", justifySelf: "center" }} onClick={() => setD((x) => ({ ...x, properties: x.properties.filter((_, j) => j !== i) }))} />
+                    <i className="ph-light ph-x" style={{ color: "var(--faint)", fontSize: 12, cursor: "pointer", justifySelf: "center" }} {...press(() => setD((x) => ({ ...x, properties: x.properties.filter((_, j) => j !== i) })))} aria-label="Remove property" />
                   </div>
                 ))}
               </div>
@@ -311,9 +311,9 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
           <Field label="Send count">
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", height: 30, border: "1px solid var(--line2)", borderRadius: 5, background: "var(--panel)" }}>
-                <span onClick={() => setD((x) => ({ ...x, count: Math.max(1, x.count - 1) }))} style={{ width: 30, height: "100%", display: "grid", placeItems: "center", cursor: "pointer", color: "var(--muted)" }}><Icon name="ph-minus" /></span>
+                <span {...press(() => setD((x) => ({ ...x, count: Math.max(1, x.count - 1) })))} aria-label="Fewer copies" style={{ width: 30, height: "100%", display: "grid", placeItems: "center", cursor: "pointer", color: "var(--muted)" }}><Icon name="ph-minus" /></span>
                 <input className="mono" value={d.count} onChange={(e) => setD((x) => ({ ...x, count: Math.max(1, Math.min(10000, Number(e.target.value.replace(/\D/g, "")) || 1)) }))} style={{ width: 52, textAlign: "center", fontSize: 12.5, border: "none", borderLeft: "1px solid var(--line)", borderRight: "1px solid var(--line)", height: "100%", background: "transparent", outline: "none" }} />
-                <span onClick={() => setD((x) => ({ ...x, count: Math.min(10000, x.count + 1) }))} style={{ width: 30, height: "100%", display: "grid", placeItems: "center", cursor: "pointer", color: "var(--muted)" }}><Icon name="ph-plus" /></span>
+                <span {...press(() => setD((x) => ({ ...x, count: Math.min(10000, x.count + 1) })))} aria-label="More copies" style={{ width: 30, height: "100%", display: "grid", placeItems: "center", cursor: "pointer", color: "var(--muted)" }}><Icon name="ph-plus" /></span>
               </div>
               <span style={{ fontSize: 11.5, color: "var(--faint)", lineHeight: 1.35 }}>Each copy gets its own MsgId</span>
             </div>
@@ -334,7 +334,7 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
         ) : (
           <div className="input" style={{ width: 240, height: 32, paddingRight: 4 }}>
             <input autoFocus value={templateName} onChange={(e) => setTemplateName(e.target.value)} placeholder="draft name" onKeyDown={(e) => { if (e.key === "Enter") void saveTemplate(); if (e.key === "Escape") { e.stopPropagation(); setTemplateName(null); } }} />
-            <span className="input-btn" onClick={() => void saveTemplate()}>Save</span>
+            <span className="input-btn" {...press(() => void saveTemplate())}>Save</span>
           </div>
         )}
         <div className="spacer" />
@@ -440,7 +440,7 @@ function InsertMenu({ onFunction, onControl, onClose }: { onFunction: (example: 
     <Popover onClose={onClose} style={{ right: 0, width: 380, maxHeight: 520, overflowY: "auto" }}>
       <div className="caps" style={{ padding: "2px 4px" }}>FUNCTIONS · EVALUATED PER MESSAGE</div>
       {Object.values(FUNCTIONS).map((f) => (
-        <div key={f.signature} className="menu-item" style={{ height: "auto", padding: "5px 8px", flexDirection: "column", alignItems: "flex-start", gap: 1 }} onMouseDown={(e) => e.preventDefault()} onClick={() => onFunction(f.example)}>
+        <div key={f.signature} className="menu-item" style={{ height: "auto", padding: "5px 8px", flexDirection: "column", alignItems: "flex-start", gap: 1 }} onMouseDown={(e) => e.preventDefault()} {...press(() => onFunction(f.example), "menuitem")}>
           <span className="mono" style={{ fontSize: 12, color: "var(--accent)" }}>{f.signature}</span>
           <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{f.description}</span>
         </div>
@@ -455,7 +455,7 @@ function InsertMenu({ onFunction, onControl, onClose }: { onFunction: (example: 
             style={{ padding: "0 6px", fontSize: 11.5, gap: 6 }}
             title={`${name} (0x${code.toString(16).padStart(2, "0").toUpperCase()})`}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onControl(code)}
+            {...press(() => onControl(code), "menuitem")}
           >
             <span style={CTL_STYLE}>{controlPicture(code)}</span>{name}
           </div>

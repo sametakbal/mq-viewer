@@ -4,7 +4,7 @@
 // Usage: node scripts/build-sidecar.mjs [--skip-runtime]
 import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -26,8 +26,12 @@ function run(cmd, args, cwd) {
 
 function findJavaHome() {
   if (process.env.JAVA_HOME && existsSync(process.env.JAVA_HOME)) return process.env.JAVA_HOME;
+  // The first java on PATH, resolved to an absolute path before it is run.
+  const java = (process.env.PATH ?? "").split(delimiter).filter((d) => isAbsolute(d))
+    .map((d) => join(d, win ? "java.exe" : "java")).find((f) => existsSync(f));
+  if (!java) throw new Error("No JDK found: set JAVA_HOME or put java on PATH");
   // `java -XshowSettings:properties` prints to stderr.
-  const r = spawnSync("java", ["-XshowSettings:properties", "-version"], { encoding: "utf8" });
+  const r = spawnSync(java, ["-XshowSettings:properties", "-version"], { encoding: "utf8" });
   const m = /java\.home = (.+)/.exec(r.stderr || "");
   if (!m) throw new Error("No JDK found: set JAVA_HOME or put java on PATH");
   return m[1].trim();

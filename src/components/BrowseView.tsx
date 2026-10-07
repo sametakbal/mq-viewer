@@ -5,7 +5,7 @@ import { exportMessages } from "../lib/transfer";
 import { withControlPictures } from "../lib/control";
 import type { Message } from "../lib/types";
 import ErrorView from "./ErrorView";
-import { Checkbox, Empty, Icon, Spinner, Switch } from "./ui";
+import { Checkbox, Empty, Icon, press, Spinner, Switch } from "./ui";
 
 export function visibleMessages(b: BrowseState): Message[] {
   const m = matcher(b.search, b.regex);
@@ -137,7 +137,7 @@ export default function BrowseView({ tab }: { tab: Tab }) {
         <div style={{ width: 1, height: 16, background: "var(--accent-line)" }} />
         <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 8, fontSize: 12, cursor: interval ? "pointer" : "default", opacity: interval ? 1 : 0.5 }}
           title={interval ? undefined : "Auto-refresh is off in Settings"}
-          onClick={() => interval && patchBrowse(tab.id, { auto: !b.auto, pollErrors: 0 })}>
+          role="presentation" onClick={() => interval && patchBrowse(tab.id, { auto: !b.auto, pollErrors: 0 })}>
           <Switch on={b.auto && !!interval} onChange={(v) => interval && patchBrowse(tab.id, { auto: v, pollErrors: 0 })} />
           <span>Auto-refresh</span>
           <span className="mono" style={{ fontSize: 11.5, color: "var(--muted)" }}>{interval ? `${interval}s` : "off"}</span>
@@ -151,7 +151,7 @@ export default function BrowseView({ tab }: { tab: Tab }) {
           <span
             className="mono"
             title="Regular expression"
-            onClick={() => patchBrowse(tab.id, { regex: !b.regex })}
+            {...press(() => patchBrowse(tab.id, { regex: !b.regex }))} aria-pressed={b.regex}
             style={{ fontSize: 10, padding: "1px 4px", border: `1px solid ${b.regex ? "var(--accent)" : "var(--line2)"}`, color: b.regex ? "var(--accent)" : "var(--faint)", borderRadius: 3, cursor: "pointer" }}
           >.*</span>
         </div>
@@ -179,7 +179,7 @@ export default function BrowseView({ tab }: { tab: Tab }) {
       </div>
 
       <div className="msg-grid col-head" style={{ height: 30, flex: "none", borderBottom: "1px solid var(--line)", background: "var(--panel)", gridTemplateColumns: GRID }}>
-        <span style={{ display: "grid", placeItems: "center", cursor: "pointer", height: "100%" }} onClick={toggleAll}>
+        <span style={{ display: "grid", placeItems: "center", cursor: "pointer", height: "100%" }} {...press(toggleAll, "checkbox")} aria-checked={allVisibleChecked} aria-label="Select all">
           <Checkbox on={allVisibleChecked} mixed={!allVisibleChecked && visible.some((m) => b.checked[m.msgId])} />
         </span>
         <span style={{ textAlign: "right", paddingRight: 10, color: "var(--text)" }}># ↑</span>
@@ -246,10 +246,10 @@ function Row({ m, b, showCtl, onSelect, onCheck }: { m: Message; b: BrowseState;
     <div
       data-id={m.msgId}
       className={`msg-grid msg-row${b.fresh[m.msgId] ? " fresh" : ""}`}
-      onClick={onSelect}
+      {...press(onSelect, "button", false)}
       style={{ gridTemplateColumns: GRID, background: sel ? "var(--sel)" : ck ? "var(--checked)" : undefined, boxShadow: `inset 2px 0 0 ${sel ? "var(--accent)" : b.fresh[m.msgId] ? "var(--ok)" : "transparent"}` }}
     >
-      <div onClick={(e) => { e.stopPropagation(); onCheck(); }} style={{ display: "grid", placeItems: "center", height: "100%", cursor: "pointer" }}>
+      <div {...press((e) => { e.stopPropagation(); onCheck(); }, "checkbox", false)} aria-checked={ck} aria-label="Select message" style={{ display: "grid", placeItems: "center", height: "100%", cursor: "pointer" }}>
         <Checkbox on={ck} />
       </div>
       <span style={{ textAlign: "right", paddingRight: 10, color: "var(--faint)" }}>{m.seq}</span>
@@ -290,7 +290,7 @@ function Skeleton() {
 
 function FiltersPopover({ tab, b, onClose }: { tab: Tab; b: BrowseState; onClose: () => void }) {
   const patch = (f: Partial<BrowseState["filters"]>) => useApp.getState().patchBrowse(tab.id, { filters: { ...b.filters, ...f } });
-  const formats = [...new Set(b.messages.map((m) => m.format || "NONE"))].sort();
+  const formats = [...new Set(b.messages.map((m) => m.format || "NONE"))].sort((x, y) => x.localeCompare(y));
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -312,7 +312,7 @@ function FiltersPopover({ tab, b, onClose }: { tab: Tab; b: BrowseState; onClose
           <option value="">Any</option><option value="json">JSON</option><option value="xml">XML</option><option value="text">Text</option><option value="binary">Binary</option>
         </select>
       </label>
-      <div style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 12.5, cursor: "pointer" }} onClick={() => patch({ correlOnly: !b.filters.correlOnly })}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 12.5, cursor: "pointer" }} {...press(() => patch({ correlOnly: !b.filters.correlOnly }), "checkbox")} aria-checked={b.filters.correlOnly}>
         <Checkbox on={b.filters.correlOnly} large />Only messages with a CorrelId
       </div>
       <div style={{ display: "flex", justifyContent: "space-between" }}>

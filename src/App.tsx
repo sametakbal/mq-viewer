@@ -110,7 +110,7 @@ export default function App() {
       </div>
       <StatusBar />
 
-      {overlay && <div className="scrim" onClick={() => setOverlay(null)} />}
+      {overlay && <div className="scrim" role="presentation" onClick={() => setOverlay(null)} />}
       <ErrorBoundary key={overlay?.kind ?? "none"} onReset={() => setOverlay(null)}>
       {overlay?.kind === "connection" && <ConnectionDrawer key={overlay.connId ?? "new"} connId={overlay.connId} />}
       {overlay?.kind === "put" && <PutDialog key={overlay.connId + overlay.queue} overlay={overlay} />}

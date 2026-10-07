@@ -19,13 +19,16 @@ type Fn = {
 };
 
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+/** Uniform in [0, 1) from the Web Crypto generator. */
+const random = () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32;
+const randIndex = (n: number) => Math.floor(random() * n);
 const randInt = (min: number, max: number) => {
   const lo = Math.ceil(Math.min(min, max)), hi = Math.floor(Math.max(min, max));
-  return lo + Math.floor(Math.random() * (hi - lo + 1));
+  return lo + randIndex(hi - lo + 1);
 };
 const randFrom = (chars: string, len: number) => {
   let s = "";
-  for (let k = 0; k < Math.max(0, len); k++) s += chars[Math.floor(Math.random() * chars.length)];
+  for (let k = 0; k < Math.max(0, len); k++) s += chars[randIndex(chars.length)];
   return s;
 };
 const pad = (v: number, w: number) => String(v).padStart(w, "0");
@@ -58,7 +61,7 @@ export const FUNCTIONS: Record<string, Fn> = {
   randomDecimal: {
     signature: "randomDecimal(min = 0, max = 1, digits = 2)", description: "Random decimal with a fixed number of digits",
     example: "randomDecimal(10, 500, 2)", params: ["number", "number", "number"], required: 0,
-    run: ([min = 0, max = 1, digits = 2]) => (Number(min) + Math.random() * (Number(max) - Number(min))).toFixed(Math.max(0, Math.min(20, Number(digits)))),
+    run: ([min = 0, max = 1, digits = 2]) => (Number(min) + random() * (Number(max) - Number(min))).toFixed(Math.max(0, Math.min(20, Number(digits)))),
   },
   randomString: {
     signature: "randomString(length = 8)", description: "Random letters and digits",
@@ -78,7 +81,7 @@ export const FUNCTIONS: Record<string, Fn> = {
   pick: {
     signature: "pick(a, b, …)", description: "One of the arguments, chosen at random",
     example: "pick('EUR', 'USD', 'TRY')", params: [], required: 1, variadic: true,
-    run: (args) => String(args[Math.floor(Math.random() * args.length)]),
+    run: (args) => String(args[randIndex(args.length)]),
   },
   now: {
     signature: "now(format?)", description: "Current time; ISO 8601 (UTC) by default, or local time with yyyy MM dd HH mm ss SSS",
