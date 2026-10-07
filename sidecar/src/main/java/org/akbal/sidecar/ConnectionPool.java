@@ -39,6 +39,13 @@ public final class ConnectionPool {
         T run(Handle h) throws Exception;
     }
 
+    /** Opens a queue manager connection; tests swap it to simulate connect failures. */
+    interface Connector {
+        MQQueueManager open(String qmgr, Hashtable<String, Object> props) throws MQException;
+    }
+
+    static Connector connector = MQQueueManager::new;
+
     private final Map<String, Handle> handles = new ConcurrentHashMap<>();
 
     /** Opens a new handle for the config, replacing any previous one. */
@@ -133,7 +140,7 @@ public final class ConnectionPool {
         h.tls = session;
 
         try {
-            h.qmgr = new MQQueueManager(c.qmgr() == null ? "" : c.qmgr(), props);
+            h.qmgr = connector.open(c.qmgr() == null ? "" : c.qmgr(), props);
         } catch (MQException e) {
             if (session != null && !session.serverChain.isEmpty()) {
                 Errors.MqError base = Errors.toError(e);

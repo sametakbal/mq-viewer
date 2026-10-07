@@ -118,7 +118,7 @@ export function tokenizeJsonText(text: string): Tok[][] {
 }
 
 export function tokenizeXmlText(text: string): Tok[][] {
-  const re = /(<\/?|\/?>|<\?|\?>)|("[^"]*")|([\w:.-]+)(?==)|(=)|([\w:.-]+)|(\s+)|(.)/g;
+  const re = /(<\?|\?>|<\/?|\/?>)|("[^"]*")|([\w:.-]+)(?==)|(=)|([\w:.-]+)|(\s+)|(.)/g;
   return text.split("\n").map((line) => {
     const toks: Tok[] = [];
     let inTag = false;

@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -69,5 +70,62 @@ class PayloadsTest {
     void formatsQmgrVersion() {
         assertEquals("9.4.0.5", MqOps.formatVersion("09040005"));
         assertEquals("10.0.0.5", MqOps.formatVersion("10000005"));
+    }
+
+    @Test
+    void charsetsFallBackToUtf8() {
+        assertEquals(StandardCharsets.UTF_8, Payloads.charset(1208));
+        assertEquals("IBM1047", Payloads.charset(1047).name());
+        assertEquals("UTF-8", Payloads.charset(-5).name());
+        assertEquals("ISO-8859-9", Payloads.charsetLabel(920));
+        assertEquals("UTF-8", Payloads.charsetLabel(-5));
+        assertEquals(Payloads.charset(1051).name(), Payloads.charsetLabel(1051));
+    }
+
+    @Test
+    void moreKinds() {
+        assertEquals("json", Payloads.kind("[1, 2]"));
+        assertEquals("text", Payloads.kind(""));
+        assertEquals("text", Payloads.kind("<open only"));
+        assertEquals("binary", Payloads.kind("\u007f\u007f\u007fAB"));
+        assertFalse(Payloads.mostlyControl(""));
+    }
+
+    @Test
+    void previewFlattensWhitespaceAndCuts() {
+        assertNull(Payloads.preview(null, 5));
+        assertEquals("a b c", Payloads.preview("a\n  b\tc", 10));
+        assertEquals("abc", Payloads.preview("abcdef", 3));
+    }
+
+    @Test
+    void byteHelpers() {
+        assertEquals("", Payloads.hex(null));
+        assertEquals("0AFF", Payloads.hex(new byte[]{10, (byte) 255}));
+        assertTrue(Payloads.isZero(null));
+        assertFalse(Payloads.isZero(new byte[]{0, 1}));
+        assertArrayEquals(new byte[]{(byte) 0xAB, 1}, Payloads.parseHex("aB01"));
+        assertTrue(Payloads.isZero(Payloads.idBytes(null)));
+        byte[] longText = Payloads.idBytes("X".repeat(30));
+        assertEquals(24, longText.length);
+        assertEquals('X', longText[23]);
+    }
+
+    @Test
+    void formatEdgeCases() {
+        assertEquals("        ", Payloads.format(null));
+        assertEquals("        ", Payloads.format(" "));
+        assertEquals("ABCDEFGH", Payloads.format("ABCDEFGHIJ"));
+    }
+
+    @Test
+    void configHelpers() {
+        Config plain = new Config("c1", "mq1", 1414, "CH", "QM1", null, null, null);
+        assertFalse(plain.tlsEnabled());
+        assertEquals("mq1:1414", plain.endpoint());
+        Config.Tls off = new Config.Tls(false, null, null, null, null, null, null, null);
+        assertFalse(new Config("c1", "mq1", 1414, "CH", "QM1", null, null, off).tlsEnabled());
+        Config.Tls on = new Config.Tls(true, null, null, null, null, null, null, null);
+        assertTrue(new Config("c1", "mq1", 1414, "CH", "QM1", null, null, on).tlsEnabled());
     }
 }

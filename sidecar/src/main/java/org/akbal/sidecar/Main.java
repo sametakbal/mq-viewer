@@ -12,6 +12,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Line-delimited JSON-RPC over stdin/stdout.
@@ -35,10 +36,13 @@ public final class Main {
         // Use JSSE cipher suite names (TLS_AES_256_GCM_SHA384) instead of IBM JRE mappings.
         System.setProperty("com.ibm.mq.cfg.useIBMCipherMappings", "false");
 
-        MqOps ops = new MqOps(new ConnectionPool());
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-        BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        serve(new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8)), out,
+                new MqOps(new ConnectionPool()));
+    }
 
+    /** Answers requests from `in` until it closes, each on its own virtual thread, then closes all connections. */
+    static void serve(BufferedReader in, PrintStream out, MqOps ops) throws Exception {
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         out.println("{\"ready\":true}");
 
         String line;
@@ -54,20 +58,7 @@ public final class Main {
                 continue;
             }
             executor.submit(() -> {
-                ObjectNode res = JSON.createObjectNode();
-                res.set("id", req.get("id"));
-                try {
-                    Object result = ops.dispatch(req.path("method").asText(), req.path("params"));
-                    res.set("result", JSON.valueToTree(result));
-                } catch (Throwable t) {
-                    res.set("error", JSON.valueToTree(Errors.toError(t)));
-                }
-                String text;
-                try {
-                    text = JSON.writeValueAsString(res);
-                } catch (Exception e) {
-                    text = "{\"id\":" + req.get("id") + ",\"error\":{\"code\":0,\"name\":\"SERIALIZATION\",\"message\":\"Response could not be serialized\"}}";
-                }
+                String text = respond(ops, req);
                 synchronized (out) {
                     out.println(text);
                 }
@@ -75,6 +66,23 @@ public final class Main {
         }
 
         executor.shutdown();
+        executor.awaitTermination(5, TimeUnit.SECONDS);
         ops.shutdown();
+    }
+
+    static String respond(MqOps ops, JsonNode req) {
+        ObjectNode res = JSON.createObjectNode();
+        res.set("id", req.get("id"));
+        try {
+            Object result = ops.dispatch(req.path("method").asText(), req.path("params"));
+            res.set("result", JSON.valueToTree(result));
+        } catch (Throwable t) {
+            res.set("error", JSON.valueToTree(Errors.toError(t)));
+        }
+        try {
+            return JSON.writeValueAsString(res);
+        } catch (Exception e) {
+            return "{\"id\":" + req.get("id") + ",\"error\":{\"code\":0,\"name\":\"SERIALIZATION\",\"message\":\"Response could not be serialized\"}}";
+        }
     }
 }
