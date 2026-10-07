@@ -126,12 +126,19 @@ npm run typecheck
 Test için yerel bir queue manager:
 
 ```bash
-docker run -d --name mqviewer-qm1 -e LICENSE=accept -e MQ_QMGR_NAME=QM1 \
-  -e MQ_APP_PASSWORD=passw0rd -e MQ_ADMIN_PASSWORD=passw0rd \
-  -p 1414:1414 icr.io/ibm-messaging/mq:latest
+docker compose -f docker/mq/docker-compose.yml up -d   # IBM MQ developer edition, QM1
+docker/mq/seed.sh                                     # örnek JSON, XML, FIX (SOH) ve STX/ETX mesajları
+docker compose -f docker/mq/docker-compose.yml down -v # durdurur ve verisini siler
 ```
 
-Bağlantı bilgileri: `localhost:1414`, queue manager `QM1`, kanal `DEV.ADMIN.SVRCONN`, kullanıcı `admin` / `passw0rd`.
+Bağlantı bilgileri: `localhost:1414`, queue manager `QM1`:
+
+| Kanal | Kullanıcı / şifre | Neyi test etmek için |
+|---|---|---|
+| `DEV.ADMIN.SVRCONN` | `admin` / `passw0rd` | her şey, kuyruk listesi dahil |
+| `DEV.APP.SVRCONN` | `app` / `passw0rd` | kısıtlı kullanıcı: PCF ile kuyruk listesi yok, `AUDIT.LOG` yalnızca browse |
+
+`DEV.QUEUE.1-3` dışında `PAYMENTS.IN/OUT`, `ORDERS.IN` (maksimum derinlik 100), `FIX.IN`, `FRAMED.IN`, `AUDIT.LOG`, put'a kapalı `LOCKED.Q` ve `PAYMENTS.API` alias'ı tanımlanır ([docker/mq/20-test-queues.mqsc](docker/mq/20-test-queues.mqsc)). IBM arm64 imajı yayınlamadığı için Apple Silicon'da konteyner amd64 emülasyonuyla çalışır ve biraz daha geç açılır.
 
 > Windows'ta Smart App Control açıkken `cargo build` başarısız olur; Rust'ın derleme zamanı makroları için ürettiği imzasız DLL'leri engeller.
 

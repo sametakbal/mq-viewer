@@ -126,12 +126,19 @@ npm run typecheck
 A local queue manager for testing:
 
 ```bash
-docker run -d --name mqviewer-qm1 -e LICENSE=accept -e MQ_QMGR_NAME=QM1 \
-  -e MQ_APP_PASSWORD=passw0rd -e MQ_ADMIN_PASSWORD=passw0rd \
-  -p 1414:1414 icr.io/ibm-messaging/mq:latest
+docker compose -f docker/mq/docker-compose.yml up -d   # IBM MQ developer edition, QM1
+docker/mq/seed.sh                                     # sample JSON, XML, FIX (SOH) and STX/ETX messages
+docker compose -f docker/mq/docker-compose.yml down -v # stop and delete its data
 ```
 
-Connect to `localhost:1414`, queue manager `QM1`, channel `DEV.ADMIN.SVRCONN`, user `admin` / `passw0rd`.
+Connect to `localhost:1414`, queue manager `QM1`:
+
+| Channel | User / password | Use it to test |
+|---|---|---|
+| `DEV.ADMIN.SVRCONN` | `admin` / `passw0rd` | everything, including the queue list |
+| `DEV.APP.SVRCONN` | `app` / `passw0rd` | a limited user: no PCF queue list, `AUDIT.LOG` browse-only |
+
+Besides `DEV.QUEUE.1-3` it defines `PAYMENTS.IN/OUT`, `ORDERS.IN` (max depth 100), `FIX.IN`, `FRAMED.IN`, `AUDIT.LOG`, the put-inhibited `LOCKED.Q` and the alias `PAYMENTS.API` ([docker/mq/20-test-queues.mqsc](docker/mq/20-test-queues.mqsc)). IBM publishes no arm64 image, so on Apple Silicon the container runs as amd64 under emulation and takes a little longer to start.
 
 > On Windows, `cargo build` fails while Smart App Control is turned on, because it blocks the unsigned DLLs that Rust builds for its compile-time macros.
 

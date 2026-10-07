@@ -1,0 +1,36 @@
+# Local IBM MQ for trying out mq-viewer. Developer edition, not for production.
+#   docker compose -f docker/mq/docker-compose.yml up -d
+# IBM publishes no arm64 image, so on Apple Silicon this runs as amd64 under emulation (Rosetta in Docker Desktop).
+services:
+  mq:
+    image: icr.io/ibm-messaging/mq:latest
+    platform: linux/amd64
+    container_name: mq-viewer-qm1
+    environment:
+      LICENSE: accept
+      MQ_QMGR_NAME: QM1
+      MQ_ENABLE_METRICS: "false"
+    secrets:
+      - mqAdminPassword
+      - mqAppPassword
+    ports:
+      - "1414:1414"   # client channels
+      - "9443:9443"   # MQ Web Console: https://localhost:9443/ibmmq/console (admin / passw0rd)
+    volumes:
+      - ./20-test-queues.mqsc:/etc/mqm/20-test-queues.mqsc:ro
+      - qm1-data:/mnt/mqm
+    healthcheck:
+      test: ["CMD", "chkmqhealthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+secrets:
+  mqAdminPassword:
+    file: ./secrets/admin-password
+  mqAppPassword:
+    file: ./secrets/app-password
+
+volumes:
+  qm1-data:
