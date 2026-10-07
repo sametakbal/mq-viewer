@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { connOf, emptyMqmd, useApp, type Overlay, type PutDraft } from "../../state";
+import { controlName, controlPicture, controlSummary, fromEditorText, INSERTABLE, isControlPicture, toEditorText } from "../../lib/control";
 import { putAndReport } from "../../lib/drafts";
 import { b64ToBytes, bytes, n } from "../../lib/format";
 import { prettyXml, tokenizeJsonText, tokenizeXmlText, type Tok } from "../../lib/highlight";
@@ -57,12 +58,17 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
   const binary = d.bodyBase64 != null;
   const v = binary ? { label: "Binary", ok: null } : validity(d.body);
   const size = binary ? b64ToBytes(d.bodyBase64!).length : new TextEncoder().encode(d.body).length;
+  // The textarea and its highlight layer show the editor form, where SOH/STX/ETX/CR… are visible glyphs.
+  const shown = useMemo(() => toEditorText(d.body), [d.body]);
+  const ctlInfo = useMemo(() => (/[\x00-\x08\x0b-\x1f\x7f]/.test(d.body) ? controlSummary(d.body) : null), [d.body]);
   const lines = useMemo<Tok[][]>(() => {
-    const t = d.body.trimStart();
-    if (t.startsWith("{") || t.startsWith("[")) return tokenizeJsonText(d.body);
-    if (t.startsWith("<")) return tokenizeXmlText(d.body);
-    return d.body.split("\n").map((l) => [{ t: l, c: "var(--text)" }]);
-  }, [d.body]);
+    const t = shown.trimStart();
+    const toks = t.startsWith("{") || t.startsWith("[") ? tokenizeJsonText(shown)
+      : t.startsWith("<") ? tokenizeXmlText(shown)
+      : shown.split("\n").map((l) => [{ t: l, c: "var(--text)" }]);
+    return toks.map(splitControlTokens);
+  }, [shown]);
+  const [ctlMenu, setCtlMenu] = useState(false);
   const queues = (st?.queues ?? []).filter((q) => (q.access ? q.access.put : !q.name.startsWith("SYSTEM.") && q.type !== "Model"));
 
   if (!conn) return null;
@@ -73,6 +79,19 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
     const before = ta.value.slice(0, ta.selectionStart);
     const ln = before.split("\n").length;
     setCursor({ ln, col: ta.selectionStart - before.lastIndexOf("\n") });
+  };
+
+  const setShown = (text: string) => setD((x) => ({ ...x, body: fromEditorText(text) }));
+  const replaceSelection = (ins: string) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const s = ta.selectionStart;
+    setShown(ta.value.slice(0, s) + ins + ta.value.slice(ta.selectionEnd));
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(s + ins.length, s + ins.length);
+      trackCursor();
+    });
   };
 
   const formatJson = () => {
@@ -148,6 +167,12 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
               <Icon name={v.ok === false ? "ph-warning" : v.ok ? "ph-check" : "ph-text-aa"} />{v.label}
             </span>
             <div className="spacer" />
+            <div style={{ position: "relative" }}>
+              <button className="btn outline sm" style={{ fontWeight: 400 }} onClick={() => setCtlMenu((o) => !o)} disabled={binary} title="Insert a control character (SOH, STX, ETX…) at the cursor">
+                <Icon name="ph-paragraph" color="var(--muted)" />Control char
+              </button>
+              {ctlMenu && <ControlCharMenu onPick={(code) => { setCtlMenu(false); replaceSelection(controlPicture(code)); }} onClose={() => setCtlMenu(false)} />}
+            </div>
             <button className="btn outline sm" style={{ fontWeight: 400 }} onClick={formatJson} disabled={binary}><Icon name="ph-brackets-curly" color="var(--muted)" />Format JSON</button>
             <button className="btn outline sm" style={{ fontWeight: 400 }} onClick={formatXml} disabled={binary}><Icon name="ph-code" color="var(--muted)" />Format XML</button>
             <button className="btn outline sm" style={{ fontWeight: 400 }} onClick={() => void loadFile()}><Icon name="ph-file-arrow-up" color="var(--muted)" />Load file…</button>
@@ -170,27 +195,23 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
                   <pre aria-hidden style={{ gridArea: "1/1", margin: 0, font: "inherit", whiteSpace: "pre", pointerEvents: "none", paddingRight: 16 }}>
                     {lines.map((toks, i) => (
                       <div key={i} style={{ background: i + 1 === cursor.ln ? "var(--hover)" : undefined }}>
-                        {toks.length ? toks.map((t, j) => <span key={j} style={{ color: t.c }}>{t.t}</span>) : " "}
+                        {toks.length ? toks.map((t, j) => <span key={j} style={t.c === CTL ? CTL_STYLE : { color: t.c }} title={t.c === CTL ? ctlTitle(t.t) : undefined}>{t.t}</span>) : " "}
                       </div>
                     ))}
                   </pre>
                   <textarea
                     ref={taRef}
-                    value={d.body}
+                    value={shown}
                     spellCheck={false}
                     wrap="off"
                     placeholder="Message body — JSON, XML or text"
-                    onChange={(e) => { setD((x) => ({ ...x, body: e.target.value })); trackCursor(); }}
+                    onChange={(e) => { setShown(e.target.value); trackCursor(); }}
                     onKeyUp={trackCursor}
                     onClick={trackCursor}
                     onKeyDown={(e) => {
                       if (e.key === "Tab") {
                         e.preventDefault();
-                        const ta = e.currentTarget;
-                        const s = ta.selectionStart;
-                        const next = ta.value.slice(0, s) + "  " + ta.value.slice(ta.selectionEnd);
-                        setD((x) => ({ ...x, body: next }));
-                        requestAnimationFrame(() => ta.setSelectionRange(s + 2, s + 2));
+                        replaceSelection("  ");
                       }
                     }}
                     style={{ gridArea: "1/1", width: "100%", height: "100%", margin: 0, padding: 0, border: "none", outline: "none", resize: "none", background: "transparent", color: "transparent", caretColor: "var(--text)", font: "inherit", lineHeight: "inherit", whiteSpace: "pre", overflow: "hidden" }}
@@ -200,7 +221,7 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
             </div>
           )}
           <div className="mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--faint)" }}>
-            <span>{binary ? "Binary" : `Ln ${cursor.ln}, Col ${cursor.col} · Spaces: 2`}</span>
+            <span>{binary ? "Binary" : `Ln ${cursor.ln}, Col ${cursor.col} · Spaces: 2`}{!binary && ctlInfo && <span style={{ color: "var(--warn)" }} title="Control characters in the body"> · {ctlInfo}</span>}</span>
             <span>CCSID {d.mqmd.ccsid} · {n(size)} B</span>
           </div>
 
@@ -293,6 +314,65 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
         <button className="btn primary lg" style={{ padding: "0 16px" }} onClick={() => void send()} disabled={sending || !queue.trim() || st?.state !== "connected"}>
           {sending ? <Spinner /> : <Icon name="ph-paper-plane-tilt" />}{d.count > 1 ? `Send ${d.count} messages` : "Send message"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+const CTL = "ctl";
+const CTL_STYLE = { color: "var(--warn)", background: "var(--warn-bg)", borderRadius: 2 } as const;
+const ctlTitle = (glyphs: string) => [...glyphs].map((g) => {
+  const code = g.charCodeAt(0) === 0x2421 ? 127 : g.charCodeAt(0) - 0x2400;
+  return `${controlName(code)} (0x${code.toString(16).padStart(2, "0").toUpperCase()})`;
+}).join(" ");
+
+/** Splits highlighted tokens so control pictures get their own marker colour without shifting any glyph. */
+function splitControlTokens(toks: Tok[]): Tok[] {
+  const out: Tok[] = [];
+  for (const tok of toks) {
+    let run = "", ctl = "";
+    for (const ch of tok.t) {
+      if (isControlPicture(ch)) {
+        if (run) out.push({ t: run, c: tok.c });
+        run = "";
+        ctl += ch;
+      } else {
+        if (ctl) out.push({ t: ctl, c: CTL });
+        ctl = "";
+        run += ch;
+      }
+    }
+    if (run) out.push({ t: run, c: tok.c });
+    if (ctl) out.push({ t: ctl, c: CTL });
+  }
+  return out;
+}
+
+function ControlCharMenu({ onPick, onClose }: { onPick: (code: number) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    setTimeout(() => window.addEventListener("mousedown", onDown));
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [onClose]);
+  return (
+    <div ref={ref} className="popover" style={{ top: 30, right: 0, width: 300, display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ fontSize: 11.5, color: "var(--muted)", padding: "2px 4px" }}>Inserted at the cursor · sent as the real byte</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2 }}>
+        {INSERTABLE.map(({ code, name }) => (
+          <div
+            key={code}
+            className="menu-item mono"
+            style={{ padding: "0 6px", fontSize: 11.5, gap: 6 }}
+            title={`${name} (0x${code.toString(16).padStart(2, "0").toUpperCase()})`}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onPick(code)}
+          >
+            <span style={CTL_STYLE}>{controlPicture(code)}</span>{name}
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -72,3 +72,36 @@ export function controlSummary(text: string): string {
   for (const [n, k] of others) parts.push(k > 1 ? `${n}×${k}` : n);
   return parts.length ? parts.join(" · ") : "no control characters";
 }
+
+const isPicture = (code: number) => (code >= 0x2400 && code <= 0x241f) || code === 0x2421;
+
+/**
+ * Editor form of a body: every control character except LF and TAB becomes its one-glyph picture, so SOH/STX/ETX
+ * are visible and a CR survives the textarea (which would otherwise normalise CRLF to LF). One code unit maps to
+ * one code unit, so caret positions are the same in both forms.
+ */
+export function toEditorText(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    out += isControl(c) && c !== 10 && c !== 9 ? controlPicture(c) : text[i];
+  }
+  return out;
+}
+
+/** Inverse of toEditorText: control pictures (typed, pasted or inserted) turn back into the real characters. */
+export function fromEditorText(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    out += isPicture(c) ? String.fromCharCode(c === 0x2421 ? 127 : c - 0x2400) : text[i];
+  }
+  return out;
+}
+
+export const isControlPicture = (ch: string) => ch.length === 1 && isPicture(ch.charCodeAt(0));
+
+/** Characters offered by the editor's insert menu, most common framing characters first. */
+export const INSERTABLE: { code: number; name: string }[] = [
+  1, 2, 3, 4, 23, 28, 29, 30, 31, 13, 0, 5, 6, 21, 16, 27, 26, 7, 8, 11, 12, 14, 15, 17, 18, 19, 20, 22, 24, 25, 127,
+].map((code) => ({ code, name: controlName(code)! }));
