@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { connOf, emptyMqmd, useApp, type Overlay, type PutDraft } from "../../state";
 import { controlName, controlPicture, controlSummary, fromEditorText, INSERTABLE, isControlPicture, toEditorText } from "../../lib/control";
 import { putAndReport } from "../../lib/drafts";
 import { b64ToBytes, bytes, n } from "../../lib/format";
 import { prettyXml, tokenizeJsonText, tokenizeXmlText, type Tok } from "../../lib/highlight";
+import { errorText, FUNCTIONS, hasTemplate, parseTemplate, renderTemplate, templateForFormat, type Parsed } from "../../lib/template";
 import { pickPayloadFile } from "../../lib/transfer";
 import type { PutMqmd, PutProperty } from "../../lib/types";
 import { EnvBadge, Field, Icon, Segmented, Spinner, StatusDot } from "../ui";
@@ -56,7 +57,16 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
   const setProp = (i: number, p: Partial<PutProperty>) => setD((x) => ({ ...x, properties: x.properties.map((q, j) => (j === i ? { ...q, ...p } : q)) }));
 
   const binary = d.bodyBase64 != null;
-  const v = binary ? { label: "Binary", ok: null } : validity(d.body);
+  // {{ fn() }} expressions: validity is judged on a rendered sample, so `"n": {{index()}}` still counts as JSON.
+  const tpl = useMemo(() => (!binary && hasTemplate(d.body) ? parseTemplate(d.body) : null), [binary, d.body]);
+  const tplError = tpl?.errors[0];
+  const v = useMemo<Validity>(() => {
+    if (binary) return { label: "Binary", ok: null };
+    if (tplError) return { label: `Template · ${errorText(d.body, tplError)}`, ok: false };
+    if (!tpl?.calls.length) return validity(d.body);
+    const sv = validity(renderTemplate(tpl, 0, d.count));
+    return { label: `Template · ${tpl.calls.length} expr · ${sv.label}`, ok: sv.ok };
+  }, [binary, tpl, tplError, d.body, d.count]);
   const size = binary ? b64ToBytes(d.bodyBase64!).length : new TextEncoder().encode(d.body).length;
   // The textarea and its highlight layer show the editor form, where SOH/STX/ETX/CR… are visible glyphs.
   const shown = useMemo(() => toEditorText(d.body), [d.body]);
@@ -66,9 +76,10 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
     const toks = t.startsWith("{") || t.startsWith("[") ? tokenizeJsonText(shown)
       : t.startsWith("<") ? tokenizeXmlText(shown)
       : shown.split("\n").map((l) => [{ t: l, c: "var(--text)" }]);
-    return toks.map(splitControlTokens);
-  }, [shown]);
-  const [ctlMenu, setCtlMenu] = useState(false);
+    const ranges = tpl ? templateRanges(shown, tpl) : [];
+    return toks.map((line, ln) => splitControlTokens(ranges[ln] ? recolor(line, ranges[ln]) : line));
+  }, [shown, tpl]);
+  const [menu, setMenu] = useState<"insert" | "preview" | null>(null);
   const queues = (st?.queues ?? []).filter((q) => (q.access ? q.access.put : !q.name.startsWith("SYSTEM.") && q.type !== "Model"));
 
   if (!conn) return null;
@@ -94,18 +105,22 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
     });
   };
 
+  // Formatting goes through templateForFormat so {{ … }} expressions survive the round trip.
   const formatJson = () => {
+    const f = templateForFormat(d.body);
     try {
-      setD((x) => ({ ...x, body: JSON.stringify(JSON.parse(x.body), null, 2) }));
+      const body = f.restore(JSON.stringify(JSON.parse(f.text), null, 2));
+      setD((x) => ({ ...x, body }));
       setCursor({ ln: 1, col: 1 });
     } catch (e) {
       showToast({ tone: "err", title: "Not valid JSON", sub: (e as Error).message });
     }
   };
   const formatXml = () => {
-    const p = prettyXml(d.body.trim());
+    const f = templateForFormat(d.body.trim());
+    const p = prettyXml(f.text);
     if (p) {
-      setD((x) => ({ ...x, body: p }));
+      setD((x) => ({ ...x, body: f.restore(p) }));
       setCursor({ ln: 1, col: 1 });
     }
     else showToast({ tone: "err", title: "Not well-formed XML" });
@@ -166,12 +181,26 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
             <span className="mono" style={{ height: 24, display: "flex", alignItems: "center", gap: 6, padding: "0 8px", borderRadius: 4, fontSize: 11.5, fontWeight: 500, background: v.ok === false ? "var(--err-bg)" : v.ok ? "var(--ok-bg)" : "var(--raised)", color: v.ok === false ? "var(--err)" : v.ok ? "var(--ok)" : "var(--muted)" }}>
               <Icon name={v.ok === false ? "ph-warning" : v.ok ? "ph-check" : "ph-text-aa"} />{v.label}
             </span>
+            {tpl && tpl.calls.length > 0 && !tplError && (
+              <div style={{ position: "relative" }}>
+                <button className="btn ghost sm" style={{ fontWeight: 400 }} onClick={() => setMenu((m) => (m === "preview" ? null : "preview"))} title="See what the rendered messages look like">
+                  <Icon name="ph-eye" color="var(--muted)" />Preview
+                </button>
+                {menu === "preview" && <PreviewPopover tpl={tpl} count={d.count} onClose={() => setMenu(null)} />}
+              </div>
+            )}
             <div className="spacer" />
             <div style={{ position: "relative" }}>
-              <button className="btn outline sm" style={{ fontWeight: 400 }} onClick={() => setCtlMenu((o) => !o)} disabled={binary} title="Insert a control character (SOH, STX, ETX…) at the cursor">
-                <Icon name="ph-paragraph" color="var(--muted)" />Control char
+              <button className="btn outline sm" style={{ fontWeight: 400 }} onClick={() => setMenu((m) => (m === "insert" ? null : "insert"))} disabled={binary} title="Insert a {{ function }} or a control character (SOH, STX, ETX…) at the cursor">
+                <Icon name="ph-plus-square" color="var(--muted)" />Insert
               </button>
-              {ctlMenu && <ControlCharMenu onPick={(code) => { setCtlMenu(false); replaceSelection(controlPicture(code)); }} onClose={() => setCtlMenu(false)} />}
+              {menu === "insert" && (
+                <InsertMenu
+                  onClose={() => setMenu(null)}
+                  onFunction={(example) => { setMenu(null); replaceSelection(`{{${example}}}`); }}
+                  onControl={(code) => { setMenu(null); replaceSelection(controlPicture(code)); }}
+                />
+              )}
             </div>
             <button className="btn outline sm" style={{ fontWeight: 400 }} onClick={formatJson} disabled={binary}><Icon name="ph-brackets-curly" color="var(--muted)" />Format JSON</button>
             <button className="btn outline sm" style={{ fontWeight: 400 }} onClick={formatXml} disabled={binary}><Icon name="ph-code" color="var(--muted)" />Format XML</button>
@@ -195,7 +224,7 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
                   <pre aria-hidden style={{ gridArea: "1/1", margin: 0, font: "inherit", whiteSpace: "pre", pointerEvents: "none", paddingRight: 16 }}>
                     {lines.map((toks, i) => (
                       <div key={i} style={{ background: i + 1 === cursor.ln ? "var(--hover)" : undefined }}>
-                        {toks.length ? toks.map((t, j) => <span key={j} style={t.c === CTL ? CTL_STYLE : { color: t.c }} title={t.c === CTL ? ctlTitle(t.t) : undefined}>{t.t}</span>) : " "}
+                        {toks.length ? toks.map((t, j) => <span key={j} style={MARK_STYLE[t.c] ?? { color: t.c }} title={t.c === CTL ? ctlTitle(t.t) : undefined}>{t.t}</span>) : " "}
                       </div>
                     ))}
                   </pre>
@@ -204,7 +233,7 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
                     value={shown}
                     spellCheck={false}
                     wrap="off"
-                    placeholder="Message body — JSON, XML or text"
+                    placeholder="Message body — JSON, XML or text · {{ uuid() }}, {{ index() }}… vary each copy (Insert ▸ Functions)"
                     onChange={(e) => { setShown(e.target.value); trackCursor(); }}
                     onKeyUp={trackCursor}
                     onClick={trackCursor}
@@ -311,7 +340,7 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
         <div className="spacer" />
         {conn.env === "PROD" && <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--err)" }}><Icon name="ph-warning" />Target is a PROD queue</span>}
         <button className="btn outline lg" style={{ marginLeft: 8 }} onClick={() => setOverlay(null)}>Cancel</button>
-        <button className="btn primary lg" style={{ padding: "0 16px" }} onClick={() => void send()} disabled={sending || !queue.trim() || st?.state !== "connected"}>
+        <button className="btn primary lg" style={{ padding: "0 16px" }} onClick={() => void send()} disabled={sending || !queue.trim() || st?.state !== "connected" || !!tplError} title={tplError ? "Fix the template error first" : undefined}>
           {sending ? <Spinner /> : <Icon name="ph-paper-plane-tilt" />}{d.count > 1 ? `Send ${d.count} messages` : "Send message"}
         </button>
       </div>
@@ -320,11 +349,56 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
 }
 
 const CTL = "ctl";
+const TPL = "tpl";
+const TPL_ERR = "tpl-err";
 const CTL_STYLE = { color: "var(--warn)", background: "var(--warn-bg)", borderRadius: 2 } as const;
+// Colour only — no padding or borders — so the highlight layer stays glyph-aligned with the textarea.
+const MARK_STYLE: Record<string, CSSProperties> = {
+  [CTL]: CTL_STYLE,
+  [TPL]: { color: "var(--accent)", background: "var(--accent-bg)", borderRadius: 2 },
+  [TPL_ERR]: { color: "var(--err)", background: "var(--err-bg)", borderRadius: 2, textDecoration: "underline wavy" },
+};
 const ctlTitle = (glyphs: string) => [...glyphs].map((g) => {
   const code = g.charCodeAt(0) === 0x2421 ? 127 : g.charCodeAt(0) - 0x2400;
   return `${controlName(code)} (0x${code.toString(16).padStart(2, "0").toUpperCase()})`;
 }).join(" ");
+
+type Range = { from: number; to: number; c: string };
+
+/** Per-line column ranges of template calls and errors (an expression never spans lines). */
+function templateRanges(text: string, tpl: Parsed): Record<number, Range[]> {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) if (text[i] === "\n") starts.push(i + 1);
+  const out: Record<number, Range[]> = {};
+  const add = (start: number, end: number, c: string) => {
+    let ln = 0;
+    while (ln + 1 < starts.length && starts[ln + 1] <= start) ln++;
+    const lineEnd = ln + 1 < starts.length ? starts[ln + 1] - 1 : text.length;
+    (out[ln] ??= []).push({ from: start - starts[ln], to: Math.min(end, lineEnd) - starts[ln], c });
+  };
+  for (const c of tpl.calls) add(c.start, c.end, TPL);
+  for (const e of tpl.errors) add(e.start, e.end, TPL_ERR);
+  return out;
+}
+
+/** Re-colours the given column ranges of a highlighted line, splitting tokens where needed. */
+function recolor(toks: Tok[], ranges: Range[]): Tok[] {
+  const out: Tok[] = [];
+  let col = 0;
+  for (const tok of toks) {
+    let k = 0;
+    while (k < tok.t.length) {
+      const at = col + k;
+      const r = ranges.find((x) => at >= x.from && at < x.to);
+      const next = r ? r.to : Math.min(...ranges.filter((x) => x.from > at).map((x) => x.from), Infinity);
+      const len = Math.min(tok.t.length - k, next - at);
+      out.push({ t: tok.t.slice(k, k + len), c: r ? r.c : tok.c });
+      k += len;
+    }
+    col += tok.t.length;
+  }
+  return out;
+}
 
 /** Splits highlighted tokens so control pictures get their own marker colour without shifting any glyph. */
 function splitControlTokens(toks: Tok[]): Tok[] {
@@ -348,18 +422,31 @@ function splitControlTokens(toks: Tok[]): Tok[] {
   return out;
 }
 
-function ControlCharMenu({ onPick, onClose }: { onPick: (code: number) => void; onClose: () => void }) {
+/** A popover under its (relatively positioned) trigger that closes on an outside click. */
+function Popover({ onClose, style, children }: { onClose: () => void; style?: CSSProperties; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      if (ref.current && !ref.current.contains(e.target as Node) && !ref.current.parentElement?.contains(e.target as Node)) onClose();
     };
     setTimeout(() => window.addEventListener("mousedown", onDown));
     return () => window.removeEventListener("mousedown", onDown);
   }, [onClose]);
+  return <div ref={ref} className="popover" style={{ top: 30, display: "flex", flexDirection: "column", gap: 6, ...style }}>{children}</div>;
+}
+
+function InsertMenu({ onFunction, onControl, onClose }: { onFunction: (example: string) => void; onControl: (code: number) => void; onClose: () => void }) {
   return (
-    <div ref={ref} className="popover" style={{ top: 30, right: 0, width: 300, display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ fontSize: 11.5, color: "var(--muted)", padding: "2px 4px" }}>Inserted at the cursor · sent as the real byte</div>
+    <Popover onClose={onClose} style={{ right: 0, width: 380, maxHeight: 520, overflowY: "auto" }}>
+      <div className="caps" style={{ padding: "2px 4px" }}>FUNCTIONS · EVALUATED PER MESSAGE</div>
+      {Object.values(FUNCTIONS).map((f) => (
+        <div key={f.signature} className="menu-item" style={{ height: "auto", padding: "5px 8px", flexDirection: "column", alignItems: "flex-start", gap: 1 }} onMouseDown={(e) => e.preventDefault()} onClick={() => onFunction(f.example)}>
+          <span className="mono" style={{ fontSize: 12, color: "var(--accent)" }}>{f.signature}</span>
+          <span style={{ fontSize: 11.5, color: "var(--muted)" }}>{f.description}</span>
+        </div>
+      ))}
+      <div style={{ height: 1, background: "var(--line)", margin: "2px 0" }} />
+      <div className="caps" style={{ padding: "2px 4px" }}>CONTROL CHARACTERS · SENT AS THE REAL BYTE</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2 }}>
         {INSERTABLE.map(({ code, name }) => (
           <div
@@ -368,12 +455,32 @@ function ControlCharMenu({ onPick, onClose }: { onPick: (code: number) => void; 
             style={{ padding: "0 6px", fontSize: 11.5, gap: 6 }}
             title={`${name} (0x${code.toString(16).padStart(2, "0").toUpperCase()})`}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onPick(code)}
+            onClick={() => onControl(code)}
           >
             <span style={CTL_STYLE}>{controlPicture(code)}</span>{name}
           </div>
         ))}
       </div>
-    </div>
+    </Popover>
+  );
+}
+
+/** Rendered message i of the batch, with fresh random values on every step or regenerate. */
+function PreviewPopover({ tpl, count, onClose }: { tpl: Parsed; count: number; onClose: () => void }) {
+  const [i, setI] = useState(0);
+  const [nonce, setNonce] = useState(0);
+  const idx = Math.min(i, count - 1);
+  const text = useMemo(() => toEditorText(renderTemplate(tpl, idx, count)), [tpl, idx, count, nonce]);
+  return (
+    <Popover onClose={onClose} style={{ left: 0, width: 520 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 2px" }}>
+        <span className="caps" style={{ flex: 1 }}>PREVIEW · MESSAGE {idx + 1} OF {count}</span>
+        <button className="icon-btn sm" title="Previous message" disabled={idx === 0} onClick={() => setI(idx - 1)}><Icon name="ph-caret-left" /></button>
+        <button className="icon-btn sm" title="Next message" disabled={idx >= count - 1} onClick={() => setI(idx + 1)}><Icon name="ph-caret-right" /></button>
+        <button className="icon-btn sm" title="Regenerate random values" onClick={() => setNonce((x) => x + 1)}><Icon name="ph-arrows-clockwise" /></button>
+      </div>
+      <pre className="mono" style={{ margin: 0, maxHeight: 360, overflow: "auto", padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 6, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{text}</pre>
+      <div style={{ fontSize: 11.5, color: "var(--faint)", padding: "0 2px" }}>Random values are drawn again when the messages are sent.</div>
+    </Popover>
   );
 }

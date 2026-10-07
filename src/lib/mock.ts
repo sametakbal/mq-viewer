@@ -160,15 +160,17 @@ async function mqCall(method: string, p: Record<string, unknown>): Promise<unkno
     case "put": {
       const list = (queues[p.queue as string] ??= []);
       const ids: string[] = [];
-      for (let i = 0; i < (p.count as number); i++) {
-        const body = (p.body as string) ?? "";
+      const bodies = p.bodies as string[] | undefined;
+      const count = bodies?.length ?? (p.count as number);
+      for (let i = 0; i < count; i++) {
+        const body = bodies?.[i] ?? (p.body as string) ?? "";
         const kind = body.trim().startsWith("{") ? "json" : body.trim().startsWith("<") ? "xml" : "text";
         const m = makeMessage(list.length + 100 + i, body, kind);
         m.putTime = new Date().toISOString();
         list.push(m);
         ids.push(m.msgId);
       }
-      return { count: p.count, msgIds: ids, elapsedMs: 23 };
+      return { count, msgIds: ids, elapsedMs: 23 };
     }
     case "delete": {
       const ids = new Set(p.msgIds as string[]);

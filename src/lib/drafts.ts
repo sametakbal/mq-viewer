@@ -2,13 +2,23 @@
 import { emptyMqmd, useApp } from "../state";
 import { api, asMqError } from "./rpc";
 import { copyText, shortId } from "./format";
+import { hasTemplate, renderBodies } from "./template";
 import type { PutMqmd, PutProperty, Template } from "./types";
 
 export async function putAndReport(connId: string, queue: string, body: { body?: string; bodyBase64?: string },
   mqmd: PutMqmd, properties: PutProperty[], count: number, label?: string): Promise<boolean> {
   const { showToast, openBrowse, refreshBrowse, loadQueues } = useApp.getState();
+  let payload: { body?: string; bodyBase64?: string; bodies?: string[] } = body;
+  if (body.body != null && hasTemplate(body.body)) {
+    try {
+      payload = { bodies: renderBodies(body.body, count) };
+    } catch (e) {
+      showToast({ tone: "err", title: "Template error", sub: (e as Error).message });
+      return false;
+    }
+  }
   try {
-    const r = await api.put(connId, queue, body, mqmd, properties.filter((p) => p.name.trim()), count);
+    const r = await api.put(connId, queue, payload, mqmd, properties.filter((p) => p.name.trim()), count);
     const last = r.msgIds[r.msgIds.length - 1];
     const what = r.count > 1 ? `${r.count} messages` : "Message";
     showToast({

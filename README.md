@@ -15,11 +15,39 @@ A desktop app for browsing and managing IBM MQ queues. You can list the queues o
 - **Browse mode:** Reading a queue never removes messages from it. You can search in payloads (regex supported), filter and page through results. With auto-refresh on, newly arrived messages are highlighted.
 - **Message details:** The payload can be shown as Text, JSON, XML or Hex. All 29 MQMD fields are listed with their constant names (e.g. `MQPER_PERSISTENT`), along with message properties.
 - **Control characters:** Optionally shows CR, LF, TAB and ASCII controls such as SOH, STX, ETX and NUL as visible markers, with a summary of what the message contains.
-- **Put message:** A syntax-highlighted editor with JSON/XML formatting and loading a body from a file. You can set MQMD options and message properties, and send several copies at once.
+- **Put message:** A syntax-highlighted editor with JSON/XML formatting and loading a body from a file. You can set MQMD options and message properties, and send several copies at once. Control characters (SOH, STX, ETX…) are shown and can be inserted in the editor.
+- **Body templates:** `{{ fn() }}` expressions in the body are evaluated separately for every copy, so a batch of N messages can carry different IDs, numbers and timestamps. See [Body templates](#body-templates).
 - **Drafts:** Saved sample messages that remember their target queue and connection. Send one in a single click from the sidebar.
 - **Delete / Purge:** Delete removes the selected messages by MsgId. Purge empties the whole queue with `CLEAR QLOCAL`, or reads every message off it when that is not allowed. On PROD connections you must type the queue name to confirm.
 - **Error screens:** Show the MQ reason code (MQRC), its likely causes and a countdown to an automatic retry.
 - Dark, light or system theme; `Ctrl+K` to search queues, connections, drafts and MsgIds.
+
+## Body templates
+
+With **Send count** above 1, every copy is rendered on its own. Expressions use `{{ name(args) }}`, where the arguments are numbers or `'strings'`. Only the functions below exist; nothing is evaluated as JavaScript. Write `\{{` for a literal `{{`. Templates apply to the message body only, and **Preview** in the Put dialog shows the rendered messages before sending.
+
+| Function | Result |
+|---|---|
+| `index(start = 1, width = 0)` | Position in the batch: start, start+1, …, zero-padded to `width` |
+| `randomNumber(min = 0, max = 999999)` | Random integer, both ends inclusive |
+| `randomDecimal(min = 0, max = 1, digits = 2)` | Random decimal with fixed digits |
+| `randomString(length = 8)` | Random letters and digits |
+| `randomHex(length = 16)` | Random hex digits |
+| `uuid()` | Random UUID v4 |
+| `pick(a, b, …)` | One of the arguments |
+| `now(format?)` | ISO 8601 (UTC) by default, or local time with `yyyy MM dd HH mm ss SSS` |
+| `timestamp()` | Epoch milliseconds |
+
+```json
+{
+  "id": "{{uuid()}}",
+  "seq": {{index()}},
+  "ref": "ORD-{{index(1, 6)}}",
+  "amount": {{randomDecimal(10, 500, 2)}},
+  "currency": "{{pick('EUR', 'USD', 'TRY')}}",
+  "createdAt": "{{now()}}"
+}
+```
 
 ## Screenshots
 

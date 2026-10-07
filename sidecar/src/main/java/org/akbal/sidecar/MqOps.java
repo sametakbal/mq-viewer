@@ -516,8 +516,16 @@ public final class MqOps {
 
     private PutResult put(MQQueueManager qm, String queueName, JsonNode p) throws Exception {
         JsonNode md = p.path("mqmd");
-        int count = Math.max(1, Math.min(p.path("count").asInt(1), 10_000));
         int ccsid = md.path("ccsid").asInt(1208);
+        // "bodies" carries one rendered body per message (templated puts); otherwise one body is sent count times.
+        List<byte[]> bodies = new ArrayList<>();
+        for (JsonNode b : p.path("bodies")) {
+            if (bodies.size() == 10_000) {
+                break;
+            }
+            bodies.add(b.asText("").getBytes(Payloads.charset(ccsid)));
+        }
+        int count = bodies.isEmpty() ? Math.max(1, Math.min(p.path("count").asInt(1), 10_000)) : bodies.size();
         byte[] body = p.hasNonNull("bodyBase64")
                 ? Base64.getDecoder().decode(p.get("bodyBase64").asText())
                 : p.path("body").asText("").getBytes(Payloads.charset(ccsid));
@@ -562,7 +570,7 @@ public final class MqOps {
                 for (PropIn pr : props) {
                     setProperty(m, pr);
                 }
-                m.write(body);
+                m.write(bodies.isEmpty() ? body : bodies.get(i));
                 q.put(m, pmo);
                 ids.add(Payloads.hex(m.messageId));
             }

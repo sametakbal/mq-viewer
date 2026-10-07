@@ -15,11 +15,39 @@ IBM MQ kuyruklarını görüntülemek ve yönetmek için bir masaüstü uygulama
 - **Browse modu:** Kuyruğu okumak mesajları hiçbir zaman silmez. Payload içinde arama (regex dahil), filtreleme ve sayfalama yapılabilir. Otomatik yenileme açıkken yeni gelen mesajlar vurgulanır.
 - **Mesaj detayı:** Payload Text, JSON, XML veya Hex olarak görüntülenir. 29 MQMD alanının tamamı sabit adlarıyla (ör. `MQPER_PERSISTENT`), mesaj özellikleriyle birlikte listelenir.
 - **Kontrol karakterleri:** İstenirse CR, LF, TAB ile SOH, STX, ETX, NUL gibi ASCII kontrol karakterleri görünür etiketler olarak gösterilir; mesajda hangilerinin bulunduğu da özetlenir.
-- **Put message:** Sözdizimi vurgulamalı editör, JSON/XML biçimlendirme ve gövdeyi dosyadan yükleme. MQMD seçenekleri ve mesaj özellikleri ayarlanabilir, aynı anda birden fazla kopya gönderilebilir.
+- **Put message:** Sözdizimi vurgulamalı editör, JSON/XML biçimlendirme ve gövdeyi dosyadan yükleme. MQMD seçenekleri ve mesaj özellikleri ayarlanabilir, aynı anda birden fazla kopya gönderilebilir. Kontrol karakterleri (SOH, STX, ETX…) editörde görünür ve eklenebilir.
+- **Gövde şablonları:** Gövdedeki `{{ fn() }}` ifadeleri her kopya için ayrı hesaplanır; böylece N mesajlık bir gönderimde her mesaj farklı ID, sayı ve zaman taşıyabilir. Bkz. [Gövde şablonları](#gövde-şablonları).
 - **Drafts:** Hedef kuyruğunu ve bağlantısını hatırlayan, kaydedilmiş örnek mesajlar. Kenar çubuğundan tek tıkla gönderilir.
 - **Delete / Purge:** Delete, seçili mesajları MsgId'lerine göre siler. Purge tüm kuyruğu `CLEAR QLOCAL` ile boşaltır; buna izin yoksa mesajları tek tek okuyarak boşaltır. PROD bağlantılarında onay için kuyruk adını yazmak gerekir.
 - **Hata ekranları:** MQ hata kodunu (MQRC), olası nedenlerini ve otomatik tekrar denemeye kalan süreyi gösterir.
 - Koyu, açık veya sistem teması; `Ctrl+K` ile kuyruk, bağlantı, Draft ve MsgId araması.
+
+## Gövde şablonları
+
+**Send count** 1'den büyükse her kopya ayrı ayrı oluşturulur. İfadeler `{{ isim(argümanlar) }}` biçimindedir; argümanlar sayı ya da `'metin'` olabilir. Yalnızca aşağıdaki fonksiyonlar vardır, hiçbir şey JavaScript olarak çalıştırılmaz. Düz `{{` yazmak için `\{{` kullanın. Şablonlar yalnızca mesaj gövdesinde çalışır; Put penceresindeki **Preview**, oluşacak mesajları göndermeden önce gösterir.
+
+| Fonksiyon | Sonuç |
+|---|---|
+| `index(start = 1, width = 0)` | Gönderimdeki sıra: start, start+1, …; `width` haneye sıfırla tamamlanır |
+| `randomNumber(min = 0, max = 999999)` | Rastgele tam sayı, iki uç dahil |
+| `randomDecimal(min = 0, max = 1, digits = 2)` | Sabit haneli rastgele ondalık sayı |
+| `randomString(length = 8)` | Rastgele harf ve rakamlar |
+| `randomHex(length = 16)` | Rastgele hex haneler |
+| `uuid()` | Rastgele UUID v4 |
+| `pick(a, b, …)` | Argümanlardan biri |
+| `now(format?)` | Varsayılan ISO 8601 (UTC); `yyyy MM dd HH mm ss SSS` ile yerel saat |
+| `timestamp()` | Epoch milisaniye |
+
+```json
+{
+  "id": "{{uuid()}}",
+  "seq": {{index()}},
+  "ref": "ORD-{{index(1, 6)}}",
+  "amount": {{randomDecimal(10, 500, 2)}},
+  "currency": "{{pick('EUR', 'USD', 'TRY')}}",
+  "createdAt": "{{now()}}"
+}
+```
 
 ## Ekran görüntüleri
 

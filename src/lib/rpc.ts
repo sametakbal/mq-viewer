@@ -59,7 +59,7 @@ export const api = {
   browse: (connId: string, queue: string, offset: number, limit: number) =>
     mq<BrowseResult>("browse", { connId, queue, offset, limit }),
   detail: (connId: string, queue: string, msgId: string) => mq<Message>("detail", { connId, queue, msgId }),
-  put: (connId: string, queue: string, body: { body?: string; bodyBase64?: string }, mqmd: PutMqmd,
+  put: (connId: string, queue: string, body: { body?: string; bodyBase64?: string; bodies?: string[] }, mqmd: PutMqmd,
     properties: PutProperty[], count: number) =>
     mq<PutResult>("put", { connId, queue, ...body, mqmd, properties, count }),
   deleteMessages: (connId: string, queue: string, msgIds: string[]) =>
