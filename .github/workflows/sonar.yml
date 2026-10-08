@@ -1,4 +1,4 @@
-name: Tests
+name: Tests & SonarCloud
 
 on:
   push:
@@ -13,6 +13,8 @@ permissions:
 jobs:
   test-and-analyze:
     runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     steps:
       - name: Checkout
@@ -47,3 +49,8 @@ jobs:
       - name: Sidecar tests with coverage
         working-directory: sidecar
         run: ./mvnw -B verify
+
+      - name: SonarCloud scan
+        # Fork PRs get no secrets; skip the scan there instead of failing.
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8
