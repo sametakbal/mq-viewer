@@ -13,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Line-delimited JSON-RPC over stdin/stdout.
@@ -42,32 +44,39 @@ public final class Main {
 
     /** Answers requests from `in` until it closes, each on its own virtual thread, then closes all connections. */
     static void serve(BufferedReader in, PrintStream out, MqOps ops) throws Exception {
-        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-        out.println("{\"ready\":true}");
+        // A lock rather than `synchronized`, which would pin the virtual threads to their carriers.
+        Lock outLock = new ReentrantLock();
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            out.println("{\"ready\":true}");
 
-        String line;
-        while ((line = in.readLine()) != null) {
-            if (line.isBlank()) {
-                continue;
-            }
-            JsonNode req;
-            try {
-                req = JSON.readTree(line);
-            } catch (Exception e) {
-                System.err.println("sidecar: invalid request: " + e.getMessage());
-                continue;
-            }
-            executor.submit(() -> {
-                String text = respond(ops, req);
-                synchronized (out) {
-                    out.println(text);
+            String line;
+            while ((line = in.readLine()) != null) {
+                if (line.isBlank()) {
+                    continue;
                 }
-            });
-        }
+                JsonNode req;
+                try {
+                    req = JSON.readTree(line);
+                } catch (Exception e) {
+                    System.err.println("sidecar: invalid request: " + e.getMessage());
+                    continue;
+                }
+                executor.submit(() -> {
+                    String text = respond(ops, req);
+                    outLock.lock();
+                    try {
+                        out.println(text);
+                    } finally {
+                        outLock.unlock();
+                    }
+                });
+            }
 
-        executor.shutdown();
-        executor.awaitTermination(5, TimeUnit.SECONDS);
-        ops.shutdown();
+            executor.shutdown();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+            // Closing the connections also fails any request still waiting on MQ, so close() below returns.
+            ops.shutdown();
+        }
     }
 
     static String respond(MqOps ops, JsonNode req) {

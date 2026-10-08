@@ -667,7 +667,8 @@ public final class MqOps {
         MQQueue q = h.qmgr.accessQueue(queueName, CMQC.MQOO_INPUT_AS_Q_DEF | CMQC.MQOO_FAIL_IF_QUIESCING);
         int removed = 0;
         try {
-            while (true) {
+            boolean more = true;
+            while (more) {
                 MQMessage m = new MQMessage();
                 MQGetMessageOptions gmo = new MQGetMessageOptions();
                 gmo.options = CMQC.MQGMO_NO_WAIT | CMQC.MQGMO_SYNCPOINT | CMQC.MQGMO_FAIL_IF_QUIESCING;
@@ -675,7 +676,8 @@ public final class MqOps {
                     q.get(m, gmo);
                 } catch (MQException e) {
                     if (e.reasonCode == CMQC.MQRC_NO_MSG_AVAILABLE) {
-                        break;
+                        more = false;
+                        continue;
                     }
                     h.qmgr.commit();
                     throw e;
