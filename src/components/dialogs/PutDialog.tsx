@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { connOf, emptyMqmd, useApp, type Overlay, type PutDraft } from "../../state";
 import { controlName, controlPicture, controlSummary, fromEditorText, INSERTABLE, isControlPicture, toEditorText } from "../../lib/control";
-import { putAndReport } from "../../lib/drafts";
+import { putToTargets, uniqueTargets } from "../../lib/drafts";
 import { b64ToBytes, bytes, n } from "../../lib/format";
 import { prettyXml, tokenizeJsonText, tokenizeXmlText, type Tok } from "../../lib/highlight";
 import { errorText, FUNCTIONS, hasTemplate, parseTemplate, renderTemplate, templateForFormat, type Parsed } from "../../lib/template";
 import { pickPayloadFile } from "../../lib/transfer";
-import type { PutMqmd, PutProperty } from "../../lib/types";
+import type { PutMqmd, PutProperty, PutTarget, QueueInfo } from "../../lib/types";
 import { EnvBadge, Field, Icon, press, Segmented, Spinner, StatusDot } from "../ui";
 
 const PROP_TYPES = ["String", "Int32", "Int64", "Int16", "Int8", "Boolean", "Float32", "Float64", "Bytes"];
 const FORMATS = ["MQSTR", "MQHRF2", "NONE"];
 
 type Validity = { label: string; ok: boolean | null };
+
+/** Queues worth offering as put targets: those the user may put to, or when that is unknown, the non-system ones. */
+const puttable = (queues: QueueInfo[] = []) => queues.filter((q) => (q.access ? q.access.put : !q.name.startsWith("SYSTEM.") && q.type !== "Model"));
 
 function validity(body: string): Validity {
   const t = body.trim();
@@ -41,6 +44,9 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
 
   const opened = templates.find((t) => t.name === overlay.draftName);
   const [queue, setQueue] = useState(opened?.queue || overlay.queue);
+  // Further queues, on this or other queue managers, that get the same messages.
+  const [extra, setExtra] = useState<PutTarget[]>(opened?.targets ?? []);
+  const connections = useApp((s) => s.connections);
   const [d, setD] = useState<PutDraft>(() => {
     const base: Partial<PutDraft> = opened
       ? { body: opened.body, mqmd: opened.mqmd, properties: opened.properties, count: opened.count ?? 1 }
@@ -80,7 +86,7 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
     return toks.map((line, ln) => splitControlTokens(ranges[ln] ? recolor(line, ranges[ln]) : line));
   }, [shown, tpl]);
   const [menu, setMenu] = useState<"insert" | "preview" | null>(null);
-  const queues = (st?.queues ?? []).filter((q) => (q.access ? q.access.put : !q.name.startsWith("SYSTEM.") && q.type !== "Model"));
+  const queues = puttable(st?.queues);
 
   if (!conn) return null;
 
@@ -138,24 +144,35 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
     if (!t) return;
     setD((x) => ({ ...x, body: t.body, bodyBase64: undefined, fileName: undefined, mqmd: { ...emptyMqmd(ccsid), ...t.mqmd }, properties: t.properties, count: t.count ?? 1 }));
     if (t.queue) setQueue(t.queue);
+    setExtra(t.targets ?? []);
   };
   const saveTemplate = async () => {
     const name = templateName?.trim();
     if (!name) return;
-    const draft = { name, body: d.body, mqmd: d.mqmd, properties: d.properties, queue: queue.trim() || undefined, connId: conn.id, count: d.count };
+    const more = uniqueTargets(extra);
+    const draft = { name, body: d.body, mqmd: d.mqmd, properties: d.properties, queue: queue.trim() || undefined, connId: conn.id, count: d.count, targets: more.length ? more : undefined };
     await saveTemplates([...templates.filter((t) => t.name !== name), draft]);
     setActiveTemplate(name);
     setTemplateName(null);
     showToast({ tone: "ok", title: `Draft "${name}" saved`, sub: draft.queue ? `Send it to ${draft.queue} from the Drafts list in one click` : undefined });
   };
 
+  const primary = { connId: conn.id, queue };
+  const targets = uniqueTargets([primary, ...extra]);
+  const prodTarget = targets.some((t) => connections.find((c) => c.id === t.connId)?.env === "PROD");
+  const setTarget = (i: number, p: Partial<PutTarget>) => setExtra((x) => x.map((t, j) => (j === i ? { ...t, ...p } : t)));
+
   const send = async () => {
-    if (!queue.trim()) return;
+    if (!targets.length) return;
     setSending(true);
     const body = binary ? { bodyBase64: d.bodyBase64 } : { body: d.body };
-    const ok = await putAndReport(conn.id, queue.trim(), body, d.mqmd, d.properties, d.count);
+    const failed = await putToTargets(targets, body, d.mqmd, d.properties, d.count);
     setSending(false);
-    if (ok) setOverlay(null);
+    if (!failed.length) return setOverlay(null);
+    // Keep only what failed, so sending again does not repeat the queues that already got the messages.
+    const left = (t: PutTarget) => failed.some((f) => f.connId === t.connId && f.queue.toUpperCase() === t.queue.trim().toUpperCase());
+    if (!left(primary)) setQueue("");
+    setExtra((x) => x.filter(left));
   };
 
   return (
@@ -171,9 +188,26 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
         <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5 }}>
           <StatusDot state={st?.state} size={7} />{conn.name}<EnvBadge env={conn.env} />
         </span>
+        <button
+          className="btn ghost sm"
+          style={{ fontWeight: 400 }}
+          title="Also put the same messages to another queue, on this or another queue manager"
+          onClick={() => setExtra((x) => [...x, { connId: x.at(-1)?.connId ?? conn.id, queue: "" }])}
+        >
+          <Icon name="ph-plus" color="var(--muted)" />Add target
+        </button>
         <div className="spacer" />
         <button className="icon-btn" onClick={() => setOverlay(null)}><Icon name="ph-x" /></button>
       </div>
+
+      {extra.length > 0 && (
+        <div style={{ flex: "none", maxHeight: 112, overflowY: "auto", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "10px 20px", borderBottom: "1px solid var(--line)", background: "var(--bg)" }}>
+          <span className="caps" style={{ marginRight: 4 }}>ALSO TO</span>
+          {extra.map((t, i) => (
+            <TargetRow key={i} index={i} target={t} onChange={(p) => setTarget(i, p)} onRemove={() => setExtra((x) => x.filter((_, j) => j !== i))} />
+          ))}
+        </div>
+      )}
 
       <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) 320px" }}>
         <div style={{ minHeight: 0, display: "flex", flexDirection: "column", padding: "14px 16px 16px 20px", gap: 12 }}>
@@ -326,7 +360,7 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
           <Icon name="ph-note-pencil" color="var(--muted)" />
           <select value={activeTemplate} onChange={(e) => applyTemplate(e.target.value)} disabled={!templates.length}>
             <option value="">{templates.length ? "Draft…" : "No drafts yet"}</option>
-            {templates.map((t) => <option key={t.name} value={t.name}>{t.name}{t.queue ? ` → ${t.queue}` : ""}</option>)}
+            {templates.map((t) => <option key={t.name} value={t.name}>{t.name}{t.queue ? ` → ${t.queue}` : ""}{t.targets?.length ? ` +${t.targets.length}` : ""}</option>)}
           </select>
         </div>
         {templateName === null ? (
@@ -338,12 +372,42 @@ export default function PutDialog({ overlay }: { overlay: Extract<Overlay, { kin
           </div>
         )}
         <div className="spacer" />
-        {conn.env === "PROD" && <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--err)" }}><Icon name="ph-warning" />Target is a PROD queue</span>}
+        {prodTarget && <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--err)" }}><Icon name="ph-warning" />{targets.length > 1 ? "Targets include a PROD queue" : "Target is a PROD queue"}</span>}
         <button className="btn outline lg" style={{ marginLeft: 8 }} onClick={() => setOverlay(null)}>Cancel</button>
-        <button className="btn primary lg" style={{ padding: "0 16px" }} onClick={() => void send()} disabled={sending || !queue.trim() || st?.state !== "connected" || !!tplError} title={tplError ? "Fix the template error first" : undefined}>
-          {sending ? <Spinner /> : <Icon name="ph-paper-plane-tilt" />}{d.count > 1 ? `Send ${d.count} messages` : "Send message"}
+        <button className="btn primary lg" style={{ padding: "0 16px" }} onClick={() => void send()} disabled={sending || !targets.length || (!!queue.trim() && st?.state !== "connected") || !!tplError} title={tplError ? "Fix the template error first" : undefined}>
+          {sending ? <Spinner /> : <Icon name="ph-paper-plane-tilt" />}{sendLabel(d.count, targets.length)}
         </button>
       </div>
+    </div>
+  );
+}
+
+function sendLabel(count: number, queues: number) {
+  const what = count > 1 ? `Send ${count} messages` : "Send message";
+  return queues > 1 ? `${what} to ${queues} queues` : what;
+}
+
+/** One extra put target: any saved connection (connected on send when needed) and a queue on it. */
+function TargetRow({ index, target, onChange, onRemove }: { index: number; target: PutTarget; onChange: (p: Partial<PutTarget>) => void; onRemove: () => void }) {
+  const connections = useApp((s) => s.connections);
+  const st = useApp((s) => s.status[target.connId]);
+  const conn = connections.find((c) => c.id === target.connId);
+  const list = `mq-put-target-${index}`;
+  return (
+    <div className="input mono on-panel" style={{ width: 380, height: 30, fontSize: 12, gap: 6, paddingRight: 4 }}>
+      <StatusDot state={st?.state} size={7} />
+      <select
+        value={target.connId}
+        onChange={(e) => onChange({ connId: e.target.value })}
+        title="Queue manager"
+        style={{ flex: "none", maxWidth: 130, color: conn?.env === "PROD" ? "var(--err)" : "var(--muted)" }}
+      >
+        {connections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+      <span style={{ color: "var(--faint)" }}>›</span>
+      <input list={list} value={target.queue} onChange={(e) => onChange({ queue: e.target.value })} placeholder="QUEUE.NAME" spellCheck={false} autoFocus={!target.queue} />
+      <datalist id={list}>{puttable(st?.queues).map((q) => <option key={q.name} value={q.name}>{q.type}</option>)}</datalist>
+      <button className="icon-btn sm" style={{ width: 22, height: 22, fontSize: 11 }} title="Remove target" onClick={onRemove}><Icon name="ph-x" /></button>
     </div>
   );
 }
@@ -437,7 +501,7 @@ function Popover({ onClose, style, children }: { onClose: () => void; style?: CS
 
 function InsertMenu({ onFunction, onControl, onClose }: { onFunction: (example: string) => void; onControl: (code: number) => void; onClose: () => void }) {
   return (
-    <Popover onClose={onClose} style={{ right: 0, width: 380, maxHeight: 520, overflowY: "auto" }}>
+    <Popover onClose={onClose} style={{ left: 0, width: 380, maxHeight: "min(520px, calc(100vh - 200px))", overflowY: "auto" }}>
       <div className="caps" style={{ padding: "2px 4px" }}>FUNCTIONS · EVALUATED PER MESSAGE</div>
       {Object.values(FUNCTIONS).map((f) => (
         <div key={f.signature} className="menu-item" style={{ height: "auto", padding: "5px 8px", flexDirection: "column", alignItems: "flex-start", gap: 1 }} onMouseDown={(e) => e.preventDefault()} {...press(() => onFunction(f.example), "menuitem")}>

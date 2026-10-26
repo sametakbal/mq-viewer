@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../state";
-import { draftConnId, sendDraft } from "../lib/drafts";
+import { draftConnId, draftTargets, sendDraft } from "../lib/drafts";
 import type { Template } from "../lib/types";
 import { Icon, press, Spinner } from "./ui";
 
@@ -63,11 +63,14 @@ function NewDraftButton() {
 function DraftRow({ t }: { t: Template }) {
   const connId = draftConnId(t);
   const conn = useApp((s) => s.connections.find((c) => c.id === connId));
+  const connections = useApp((s) => s.connections);
+  const targets = draftTargets(t);
+  const more = targets.length - (t.queue ? 1 : 0);
   const { setOverlay, saveTemplates } = useApp.getState();
   const [hover, setHover] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<"send" | "delete" | null>(null);
-  const prod = conn?.env === "PROD";
+  const prod = targets.some((x) => connections.find((c) => c.id === x.connId)?.env === "PROD");
 
   useEffect(() => {
     if (!confirm) return;
@@ -94,7 +97,7 @@ function DraftRow({ t }: { t: Template }) {
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => { setHover(false); setConfirm(null); }}
       {...press(edit)}
-      title={`${t.name}${t.queue ? ` → ${t.queue}` : ""}${conn ? ` on ${conn.name}` : ""}${t.count && t.count > 1 ? ` · ×${t.count}` : ""}`}
+      title={`${t.name}${t.queue ? ` → ${t.queue}` : ""}${conn ? ` on ${conn.name}` : ""}${more > 0 ? ` and ${targets.slice(-more).map((x) => x.queue).join(", ")}` : ""}${t.count && t.count > 1 ? ` · ×${t.count}` : ""}`}
       style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8, padding: "3px 8px 3px 14px", cursor: "pointer" }}
     >
       <Icon name="ph-note-pencil" size={14} color="var(--faint)" />
@@ -102,6 +105,7 @@ function DraftRow({ t }: { t: Template }) {
         <span className="ellipsis" style={{ fontSize: 12.5 }}>{t.name}</span>
         <span className="mono ellipsis" style={{ fontSize: 10.5, color: t.queue ? "var(--muted)" : "var(--faint)" }}>
           {t.queue ? `→ ${t.queue}` : "no queue — opens Put"}
+          {t.queue && more > 0 ? ` +${more}` : ""}
           {t.count && t.count > 1 ? ` ×${t.count}` : ""}
           {conn ? <span style={{ color: prod ? "var(--err)" : "var(--faint)" }}> · {conn.name}</span> : null}
         </span>
@@ -122,7 +126,7 @@ function DraftRow({ t }: { t: Template }) {
           <button
             className="icon-btn sm"
             style={{ width: 22, height: 22, fontSize: 13, color: "var(--accent)" }}
-            title={t.queue ? `Send to ${t.queue}` : "Choose a queue"}
+            title={t.queue ? `Send to ${targets.map((x) => x.queue).join(", ")}` : "Choose a queue"}
             onClick={() => void send()}
           >
             <Icon name="ph-paper-plane-tilt" />

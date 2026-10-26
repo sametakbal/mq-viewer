@@ -68,6 +68,13 @@ export interface Template {
   queue?: string;
   connId?: string;
   count?: number;
+  /** Further queues, possibly on other queue managers, that get the same messages as `queue`. */
+  targets?: PutTarget[];
+}
+
+export interface PutTarget {
+  connId: string;
+  queue: string;
 }
 
 export interface CertInfo {

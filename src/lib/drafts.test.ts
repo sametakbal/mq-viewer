@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyMqmd, useApp } from "../state";
 import { conn, mqError } from "../test/fixtures";
-import { draftConnId, putAndReport, sendDraft } from "./drafts";
+import { draftConnId, draftTargets, putAndReport, putToTargets, sendDraft, uniqueTargets } from "./drafts";
 import { MqCallError } from "./rpc";
 import type { Template } from "./types";
 
@@ -71,6 +71,66 @@ describe("putAndReport", () => {
   });
 });
 
+describe("putToTargets", () => {
+  const c2 = conn({ id: "c2", name: "Remote", qmgr: "QM2" });
+  beforeEach(() => {
+    useApp.setState({ connections: [conn(), c2], status: { c1: { state: "connected", attempt: 0 }, c2: { state: "connected", attempt: 0 } } });
+  });
+
+  it("drops blank and repeated targets", () => {
+    expect(uniqueTargets([{ connId: "c1", queue: " Q " }, { connId: "c1", queue: "q" }, { connId: "c2", queue: "Q" }, { connId: "c1", queue: "" }]))
+      .toEqual([{ connId: "c1", queue: "Q" }, { connId: "c2", queue: "Q" }]);
+  });
+
+  it("uses the single-queue report for one target", async () => {
+    expect(await putToTargets([{ connId: "c1", queue: "Q" }, { connId: "c1", queue: "Q" }], { body: "x" }, mqmd, [], 1)).toEqual([]);
+    expect(h.put).toHaveBeenCalledTimes(1);
+    expect(toast().title).toBe("Message sent to Q");
+  });
+
+  it("puts identical rendered messages to every queue and reports once", async () => {
+    h.put.mockImplementation(async (_c: string, q: string) => ({ count: 2, msgIds: [`${q}-1`, `${q}-2`], elapsedMs: 1 }));
+    const failed = await putToTargets([{ connId: "c1", queue: "A" }, { connId: "c1", queue: "B" }, { connId: "c2", queue: "C" }],
+      { body: "n={{index()}}" }, mqmd, [], 2);
+    expect(failed).toEqual([]);
+    // Connections run in parallel, so only the order within one connection is fixed.
+    expect(h.put.mock.calls.map((c) => [c[0], c[1], c[2]]).sort((a, b) => String(a[1]).localeCompare(String(b[1])))).toEqual([
+      ["c1", "A", { bodies: ["n=1", "n=2"] }], ["c1", "B", { bodies: ["n=1", "n=2"] }], ["c2", "C", { bodies: ["n=1", "n=2"] }],
+    ]);
+    expect(toast()).toMatchObject({ tone: "ok", title: "2 messages sent to 3 queues" });
+    expect(toast().sub).toMatch(/^Local › A · Local › B · Remote › C · \d+ ms$/);
+    expect(fns.loadQueues).toHaveBeenCalledWith("c2");
+    toast().actions![0].run();
+    expect(h.copyText).toHaveBeenCalledWith(["A-1", "A-2", "B-1", "B-2", "C-1", "C-2"].join("\n"));
+  });
+
+  it("returns and reports only the queues that failed", async () => {
+    h.put.mockImplementation(async (_c: string, q: string) => {
+      if (q === "B") throw new MqCallError(mqError(2085, "MQRC_UNKNOWN_OBJECT_NAME"));
+      return { count: 1, msgIds: ["M"], elapsedMs: 1 };
+    });
+    const failed = await putToTargets([{ connId: "c1", queue: "A" }, { connId: "c1", queue: "B" }], { body: "x" }, mqmd, [], 1, "Daily");
+    expect(failed).toEqual([{ connId: "c1", queue: "B" }]);
+    expect(toast()).toMatchObject({ tone: "err", title: "Sent to 1 of 2 queues", sub: "B: MQRC 2085 MQRC_UNKNOWN_OBJECT_NAME" });
+  });
+
+  it("connects a target's queue manager first and fails its queues when that does not work", async () => {
+    useApp.setState({ status: { c1: { state: "connected", attempt: 0 }, c2: { state: "error", attempt: 1, error: mqError(2059, "MQRC_Q_MGR_NOT_AVAILABLE") } } });
+    fns.connect.mockResolvedValue(false);
+    const failed = await putToTargets([{ connId: "c1", queue: "A" }, { connId: "c2", queue: "C" }], { body: "x" }, mqmd, [], 1);
+    expect(fns.connect).toHaveBeenCalledWith("c2");
+    expect(failed).toEqual([{ connId: "c2", queue: "C" }]);
+    expect(toast()).toMatchObject({ tone: "err", title: "Sent to 1 of 2 queues", sub: "Remote › C: MQRC 2059 MQRC_Q_MGR_NOT_AVAILABLE" });
+  });
+
+  it("puts nothing on a template error", async () => {
+    const targets = [{ connId: "c1", queue: "A" }, { connId: "c2", queue: "C" }];
+    expect(await putToTargets(targets, { body: "{{nope}}" }, mqmd, [], 1)).toEqual(targets);
+    expect(h.put).not.toHaveBeenCalled();
+    expect(toast()).toMatchObject({ tone: "err", title: "Template error" });
+  });
+});
+
 describe("draftConnId", () => {
   const t = (p: Partial<Template> = {}): Template => ({ name: "d", body: "x", mqmd, properties: [], ...p });
 
@@ -121,5 +181,13 @@ describe("sendDraft", () => {
 
     await sendDraft({ ...draft, count: undefined });
     expect(h.put.mock.calls[1][5]).toBe(1);
+  });
+
+  it("sends to the extra targets too, skipping ones whose connection is gone", async () => {
+    const multi = { ...draft, targets: [{ connId: "c1", queue: "Q2" }, { connId: "deleted", queue: "Q3" }] };
+    expect(draftTargets(multi)).toEqual([{ connId: "c1", queue: "Q" }, { connId: "c1", queue: "Q2" }]);
+    expect(await sendDraft(multi)).toBe(true);
+    expect(h.put.mock.calls.map((c) => c[1])).toEqual(["Q", "Q2"]);
+    expect(toast().title).toBe("Daily → 2 queues");
   });
 });

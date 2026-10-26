@@ -320,6 +320,21 @@ describe("tabs", () => {
     S().closeTab("c");
     expect(S().activeTab).toBeNull();
   });
+
+  it("closeTabs hands the active tab to the nearest survivor", () => {
+    const tabs = ["a", "b", "c", "d", "e"].map((id) => ({ id, kind: "queues" as const, connId: "c1" }));
+    useApp.setState({ tabs, activeTab: "b", browse: { b: {} as BrowseState, e: {} as BrowseState } });
+    S().closeTabs(["b", "c"]);
+    expect(S()).toMatchObject({ activeTab: "d", browse: { e: {} } });
+    expect(S().tabs.map((t) => t.id)).toEqual(["a", "d", "e"]);
+
+    S().closeTabs(["d", "e"]);
+    expect(S().activeTab).toBe("a");
+    S().closeTabs(["ghost"]);
+    expect(S().tabs.map((t) => t.id)).toEqual(["a"]);
+    S().closeTabs(["a"]);
+    expect(S()).toMatchObject({ tabs: [], activeTab: null });
+  });
 });
 
 describe("refreshBrowse", () => {

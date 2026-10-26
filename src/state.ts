@@ -142,6 +142,8 @@ interface AppState {
   openBrowse: (connId: string, queue: string) => void;
   activate: (tabId: string) => void;
   closeTab: (tabId: string) => void;
+  /** Closes several tabs at once; an active tab that closes hands over to the nearest survivor on its right, else its left. */
+  closeTabs: (tabIds: string[]) => void;
 
   refreshBrowse: (tabId: string, mode?: "reset" | "more" | "poll") => Promise<void>;
   patchBrowse: (tabId: string, patch: Partial<BrowseState> | ((b: BrowseState) => Partial<BrowseState>)) => void;
@@ -369,12 +371,19 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     closeTab(tabId) {
+      get().closeTabs([tabId]);
+    },
+
+    closeTabs(tabIds) {
+      const gone = new Set(tabIds);
       set((s) => {
-        const idx = s.tabs.findIndex((t) => t.id === tabId);
-        const tabs = s.tabs.filter((t) => t.id !== tabId);
-        const { [tabId]: _gone, ...browse } = s.browse;
-        void _gone;
-        const activeTab = s.activeTab === tabId ? tabs[Math.min(idx, tabs.length - 1)]?.id ?? null : s.activeTab;
+        const tabs = s.tabs.filter((t) => !gone.has(t.id));
+        const browse = Object.fromEntries(Object.entries(s.browse).filter(([id]) => !gone.has(id)));
+        let activeTab = s.activeTab;
+        if (activeTab && gone.has(activeTab)) {
+          const idx = s.tabs.findIndex((t) => t.id === activeTab);
+          activeTab = (s.tabs.slice(idx + 1).find((t) => !gone.has(t.id)) ?? tabs.at(-1))?.id ?? null;
+        }
         return { tabs, browse, activeTab };
       });
     },
