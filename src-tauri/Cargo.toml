@@ -1,6 +1,6 @@
 [package]
 name = "mq-viewer"
-version = "2.0.0"
+version = "2.2.0"
 description = "IBM MQ queue viewer"
 authors = ["Samet Akbal"]
 edition = "2021"
